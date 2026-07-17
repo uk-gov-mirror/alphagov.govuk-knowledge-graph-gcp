@@ -1,0 +1,83 @@
+import logging
+
+logger = logging.getLogger(__name__)
+
+def move_files(
+    storage_client,
+    bucket_name,
+    blobs,
+    source_root,
+    target_root
+):
+    bucket = storage_client.bucket(bucket_name)
+    moved_count = 0
+    skipped_count = 0
+
+    logger.info("Starting file move operation")
+
+    for blob in blobs:
+        # Check if the blob is in the expected source path
+        if source_root not in blob.name:
+            skipped_count += 1
+            continue
+
+        # Extract relative path to reconstruct the destination
+        relative_path = blob.name.split(source_root, 1)[1]
+        
+        # Ensure destination path is formatted correctly
+        destination_blob_name = f"{target_root.rstrip('/')}/{relative_path.lstrip('/')}"
+
+        # Copy the blob to the new location
+        bucket.copy_blob(
+            blob,
+            bucket,
+            destination_blob_name
+        )
+
+        # Delete the original blob
+        blob.delete()
+        
+        moved_count += 1
+
+    # Print the final summary instead of individual file paths
+    if skipped_count > 0:
+        logger.info("File move completed. Moved=%s, Skipped=%s (invalid path)",moved_count,skipped_count)
+    else:
+        logger.info("Archive complete. Moved=%s files", moved_count)
+
+
+def archive_files(
+    storage_client,
+    bucket_name,
+    blobs,
+    source_root,
+    archive_root
+):
+    
+    logger.info("Archiving files to %s", archive_root)\
+
+    move_files(
+        storage_client=storage_client,
+        bucket_name=bucket_name,
+        blobs=blobs,
+        source_root=source_root,
+        target_root=archive_root
+    )
+
+
+def move_to_error(
+    storage_client,
+    bucket_name,
+    blobs,
+    source_root,
+    error_root
+):
+    logger.info("Moving failed files to error path: %s", error_root)
+    
+    move_files(
+        storage_client=storage_client,
+        bucket_name=bucket_name,
+        blobs=blobs,
+        source_root=source_root,
+        target_root=error_root
+    )
