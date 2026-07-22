@@ -13,7 +13,7 @@
   "tables": [
     {
       "raw_dataset": "govuk_postgres_publisher_raw_s",
-      "dw_dataset": "govuk_postgres_publisher_dw_s",
+      "dw_dataset": "publisher",
       "raw_table": "actions",
       "dw_table": "actions",
       "db_instance": "publisher-staging-postgres/",
@@ -23,7 +23,7 @@
 
     {
       "raw_dataset": "govuk_postgres_publisher_raw_s",
-      "dw_dataset": "govuk_postgres_publisher_dw_s",
+      "dw_dataset": "publisher",
       "raw_table": "editions",
       "dw_table": "editions",
       "db_instance": "publisher-staging-postgres/",
