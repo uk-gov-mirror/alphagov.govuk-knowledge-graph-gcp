@@ -33,7 +33,7 @@
     
     {
       "raw_dataset": "govuk_postgres_publishing_api_raw_s",
-      "dw_dataset": "govuk_postgres_publishing_api_dw_s",
+      "dw_dataset": "publishing_api",
       "raw_table": "actions",
       "dw_table": "actions",
       "db_instance": "publishing-api-staging-postgres/",
@@ -43,7 +43,7 @@
     
     {
       "raw_dataset": "govuk_postgres_publishing_api_raw_s",
-      "dw_dataset": "govuk_postgres_publishing_api_dw_s",
+      "dw_dataset": "publishing_api",
       "raw_table": "change_notes",
       "dw_table": "change_notes",
       "db_instance": "publishing-api-staging-postgres/",
@@ -53,7 +53,7 @@
     
     {
       "raw_dataset": "govuk_postgres_publishing_api_raw_s",
-      "dw_dataset": "govuk_postgres_publishing_api_dw_s",
+      "dw_dataset": "publishing_api",
       "raw_table": "documents",
       "dw_table": "documents",
       "db_instance": "publishing-api-staging-postgres/",
@@ -63,7 +63,7 @@
 
     {
       "raw_dataset": "govuk_postgres_publishing_api_raw_s",
-      "dw_dataset": "govuk_postgres_publishing_api_dw_s",
+      "dw_dataset": "publishing_api",
       "raw_table": "editions",
       "dw_table": "editions",
       "db_instance": "publishing-api-staging-postgres/",
@@ -73,7 +73,7 @@
 
     {
       "raw_dataset": "govuk_postgres_publishing_api_raw_s",
-      "dw_dataset": "govuk_postgres_publishing_api_dw_s",
+      "dw_dataset": "publishing_api",
       "raw_table": "events",
       "dw_table": "events",
       "db_instance": "publishing-api-staging-postgres/",
@@ -83,7 +83,7 @@
 
     {
       "raw_dataset": "govuk_postgres_publishing_api_raw_s",
-      "dw_dataset": "govuk_postgres_publishing_api_dw_s",
+      "dw_dataset": "publishing_api",
       "raw_table": "expanded_links",
       "dw_table": "expanded_links",
       "db_instance": "publishing-api-staging-postgres/",
@@ -93,7 +93,7 @@
 
     {
       "raw_dataset": "govuk_postgres_publishing_api_raw_s",
-      "dw_dataset": "govuk_postgres_publishing_api_dw_s",
+      "dw_dataset": "publishing_api",
       "raw_table": "link_changes",
       "dw_table": "link_changes",
       "db_instance": "publishing-api-staging-postgres/",
@@ -103,7 +103,7 @@
 
     {
       "raw_dataset": "govuk_postgres_publishing_api_raw_s",
-      "dw_dataset": "govuk_postgres_publishing_api_dw_s",
+      "dw_dataset": "publishing_api",
       "raw_table": "link_sets",
       "dw_table": "link_sets",
       "db_instance": "publishing-api-staging-postgres/",
@@ -113,7 +113,7 @@
 
     {
       "raw_dataset": "govuk_postgres_publishing_api_raw_s",
-      "dw_dataset": "govuk_postgres_publishing_api_dw_s",
+      "dw_dataset": "publishing_api",
       "raw_table": "links",
       "dw_table": "links",
       "db_instance": "publishing-api-staging-postgres/",
@@ -123,7 +123,7 @@
 
     {
       "raw_dataset": "govuk_postgres_publishing_api_raw_s",
-      "dw_dataset": "govuk_postgres_publishing_api_dw_s",
+      "dw_dataset": "publishing_api",
       "raw_table": "path_reservations",
       "dw_table": "path_reservations",
       "db_instance": "publishing-api-staging-postgres/",
@@ -133,7 +133,7 @@
 
     {
       "raw_dataset": "govuk_postgres_publishing_api_raw_s",
-      "dw_dataset": "govuk_postgres_publishing_api_dw_s",
+      "dw_dataset": "publishing_api",
       "raw_table": "unpublishings",
       "dw_table": "unpublishings",
       "db_instance": "publishing-api-staging-postgres/",
