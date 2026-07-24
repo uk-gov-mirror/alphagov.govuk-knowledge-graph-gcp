@@ -8,8 +8,7 @@ from utils.gcs_utils import list_blobs, derive_move_path
 from services.audit import insert_audit_record, update_audit_record
 from services.bq_loader import load_parquet_to_bq, run_transform_sql
 from services.parquet_cleaner import clean_parquet_files
-# DISABLE: File archiver service imports
-#from services.file_archiver import archive_files, move_to_error
+from services.file_archiver import archive_files, move_to_error
 
 
 
@@ -204,9 +203,9 @@ def process_table(storage_client, bq_client, config, table_cfg):
             error_message=None
         )
 
-        """ 
+         
         # =========================================================
-        # 7. ARCHIVE FILES (DISABLED)
+        # 7. ARCHIVE FILES
         # =========================================================
         archive_files(
             storage_client=storage_client,
@@ -217,7 +216,7 @@ def process_table(storage_client, bq_client, config, table_cfg):
          )
         logger.info("--------- Finished table %s.%s ---------", raw_dataset, dw_table)
         return
-        """
+        
 
         # =========================================================
         # 8. FAILURE AUDIT UPDATES
@@ -254,8 +253,8 @@ def process_table(storage_client, bq_client, config, table_cfg):
             except Exception:
                     logger.exception("Failed updating DW audit")
 
-        """
-        # Move files to error (DISABLED)
+
+        # Move files to error
         try:
             move_to_error(
                 storage_client=storage_client,
@@ -266,7 +265,7 @@ def process_table(storage_client, bq_client, config, table_cfg):
             )
         except Exception:
             logger.exception("Failed moving files to error zone")
-        """
+
 
         raise
 
