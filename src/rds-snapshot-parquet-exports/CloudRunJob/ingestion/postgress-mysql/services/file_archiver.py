@@ -1,4 +1,5 @@
 import logging
+from google.api_core.exceptions import NotFound
 
 logger = logging.getLogger(__name__)
 
@@ -27,21 +28,33 @@ def move_files(
         # Ensure destination path is formatted correctly
         destination_blob_name = f"{target_root.rstrip('/')}/{relative_path.lstrip('/')}"
 
-        # Copy the blob to the new location
-        bucket.copy_blob(
-            blob,
-            bucket,
-            destination_blob_name
-        )
+        # Try to copy and delete the blob safely
+        try:
+            # Copy the blob to the new location
+            bucket.copy_blob(
+                blob,
+                bucket,
+                destination_blob_name
+            )
 
-        # Delete the original blob
-        blob.delete()
-        
-        moved_count += 1
+            # Delete the original blob
+            blob.delete()
+            
+            moved_count += 1
+        except NotFound:
+            # If another parallel task already archived/deleted this file, skip it safely
+            logger.warning(
+                "Blob %s was not found on the server. It may have already been archived by another task.", 
+                blob.name
+            )
+            skipped_count += 1
+        except Exception as e:
+            logger.error("Failed to move blob %s: %s", blob.name, e)
+            raise
 
     # Print the final summary instead of individual file paths
     if skipped_count > 0:
-        logger.info("File move completed. Moved=%s, Skipped=%s (invalid path)",moved_count,skipped_count)
+        logger.info("File move completed. Moved=%s, Skipped=%s (already archived/deleted or invalid path)", moved_count, skipped_count)
     else:
         logger.info("Archive complete. Moved=%s files", moved_count)
 
@@ -53,8 +66,7 @@ def archive_files(
     source_root,
     archive_root
 ):
-    
-    logger.info("Archiving files to %s", archive_root)\
+    logger.info("Archiving files to %s", archive_root)
 
     move_files(
         storage_client=storage_client,
