@@ -75,15 +75,22 @@ def process_table(storage_client, bq_client, config, table_cfg):
 
     try:
         # =========================================================
-        # 1. DISCOVER FILES IN SOURCE BUCKET
+        # 1. DISCOVER FILES IN THE SOURCE BUCKET
         # =========================================================
         all_source_blobs = list_blobs(storage_client, source_bucket_name, gcs_prefix)
 
-        # Pre-count the source parquet files for audit insertion
-        source_parquet_count = sum(
-            1 for b in all_source_blobs 
+        # Filter source blobs for ONLY the current feed BEFORE copying
+        source_parquet_blobs = [
+            b for b in all_source_blobs
             if path_contains in b.name and b.name.endswith(".parquet")
-        )
+        ]
+
+        source_move_blobs = [
+            b for b in all_source_blobs
+            if move_path in b.name or b.name.endswith(".json")
+        ]
+
+        source_parquet_count = len(source_parquet_blobs)
 
         # =========================================================
         # 2. INSERT RAW AUDIT FIRST (IMPORTANT)
@@ -104,7 +111,7 @@ def process_table(storage_client, bq_client, config, table_cfg):
         # 3. HANDLE NO FILES CASE
         # =========================================================
         if source_parquet_count == 0:
-            logger.info("No parquet files found in %s of source bucket %s", gcs_prefix, source_bucket_name)
+            logger.info("No parquet files found for pattern '%s' in %s", path_contains, source_bucket_name)
 
             raw_status = "no_files"
 
@@ -118,25 +125,33 @@ def process_table(storage_client, bq_client, config, table_cfg):
             )
             return
 
-        # =========================================================
-        # 3.5 COPY FILES FROM SOURCE TO TARGET BUCKET
-        # =========================================================
-        # This will clone the full discovered folder/subfolder/metadata structures to the target bucket server-side.
-        target_blobs = copy_blobs_to_bucket(
+        # =================================================================
+        # 3.5 COPY FILES FROM SOURCE TO TARGET BUCKET (FILTERED FEED ONLY)
+        # =================================================================
+        # Combine and deduplicate to get the exact files that belong only to this specific table/feed
+        blobs_to_copy = list({b.name: b for b in source_parquet_blobs + source_move_blobs}.values())
+
+        logger.info(
+            "Copying %d discovered files for feed '%s' from source '%s' to target '%s'",
+            len(blobs_to_copy), path_contains, source_bucket_name, target_bucket_name
+        )
+
+        # Server-side copy ONLY the files belonging to this specific feed
+        target_copied_blobs = copy_blobs_to_bucket(
             storage_client=storage_client,
             source_bucket_name=source_bucket_name,
             target_bucket_name=target_bucket_name,
-            blobs=all_source_blobs
+            blobs=blobs_to_copy
         )
 
         # Filter the lists of blobs directly from the newly copied target bucket references
         parquet_blobs = [
-            b for b in target_blobs
+            b for b in target_copied_blobs
             if path_contains in b.name and b.name.endswith(".parquet")
         ]
 
         move_blobs = [
-            b for b in target_blobs
+            b for b in target_copied_blobs
             if move_path in b.name or b.name.endswith(".json")
         ]
 
