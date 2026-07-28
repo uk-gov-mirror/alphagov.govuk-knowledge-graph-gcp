@@ -4,7 +4,7 @@ import logging
 from datetime import date
 from google.cloud import bigquery, storage
 from models.config import load_config
-from utils.gcs_utils import list_blobs, derive_move_path
+from utils.gcs_utils import list_blobs, derive_move_path, copy_blobs_to_bucket
 from services.audit import insert_audit_record, update_audit_record
 from services.bq_loader import load_parquet_to_bq, run_transform_sql
 from services.parquet_cleaner import clean_parquet_files
@@ -21,6 +21,7 @@ def process_table(storage_client, bq_client, config, table_cfg):
     project_id = config["project_id"]
     source_bucket_name = config["source_bucket_name"]
     target_bucket_name = config["target_bucket_name"]
+    bucket_name = target_bucket_name
 
     source_root = config["source_root"]
     archive_root = config["archive_root"]
@@ -76,17 +77,13 @@ def process_table(storage_client, bq_client, config, table_cfg):
         # =========================================================
         # 1. DISCOVER FILES IN SOURCE BUCKET
         # =========================================================
-        all_blobs = list_blobs(storage_client, source_bucket_name, gcs_prefix)
+        all_source_blobs = list_blobs(storage_client, source_bucket_name, gcs_prefix)
 
-        parquet_blobs = [
-            b for b in all_blobs
+        # Pre-count the source parquet files for audit insertion
+        source_parquet_count = sum(
+            1 for b in all_source_blobs 
             if path_contains in b.name and b.name.endswith(".parquet")
-        ]
-
-        move_blobs = [
-            b for b in all_blobs
-            if move_path in b.name or b.name.endswith(".json")
-        ]
+        )
 
         # =========================================================
         # 2. INSERT RAW AUDIT FIRST (IMPORTANT)
@@ -100,13 +97,13 @@ def process_table(storage_client, bq_client, config, table_cfg):
             file_type="parquet",
             file_path=f"gs://{target_bucket_name}/{gcs_prefix}",
             status="processing",
-            file_count=len(parquet_blobs),
+            file_count=source_parquet_count,
         )
 
         # =========================================================
         # 3. HANDLE NO FILES CASE
         # =========================================================
-        if not parquet_blobs:
+        if source_parquet_count == 0:
             logger.info("No parquet files found in %s of source bucket %s", gcs_prefix, source_bucket_name)
 
             raw_status = "no_files"
@@ -124,25 +121,24 @@ def process_table(storage_client, bq_client, config, table_cfg):
         # =========================================================
         # 3.5 COPY FILES FROM SOURCE TO TARGET BUCKET
         # =========================================================
-        logger.info(
-            "Copying discovered directory structure from source '%s' to target '%s' for prefix '%s'",
-            source_bucket_name, target_bucket_name, gcs_prefix
+        # This will clone the full discovered folder/subfolder/metadata structures to the target bucket server-side.
+        target_blobs = copy_blobs_to_bucket(
+            storage_client=storage_client,
+            source_bucket_name=source_bucket_name,
+            target_bucket_name=target_bucket_name,
+            blobs=all_source_blobs
         )
-        source_bucket = storage_client.bucket(source_bucket_name)
-        target_bucket = storage_client.bucket(target_bucket_name)
 
-        # Copy all discovered blobs (maintaining complete folder structures and files)
-        for b in all_blobs:
-            try:
-                logger.info("Copying blob: %s", b.name)
-                source_bucket.copy_blob(b, target_bucket, b.name)
-            except Exception as e:
-                logger.error("Failed to copy blob %s: %s", b.name, e)
-                raise Exception(f"Copy to target bucket failed for {b.name}: {e}")
+        # Filter the lists of blobs directly from the newly copied target bucket references
+        parquet_blobs = [
+            b for b in target_blobs
+            if path_contains in b.name and b.name.endswith(".parquet")
+        ]
 
-        # Update lists to reference the newly copied blobs in the TARGET bucket
-        parquet_blobs = [target_bucket.blob(b.name) for b in parquet_blobs]
-        move_blobs = [target_bucket.blob(b.name) for b in move_blobs]
+        move_blobs = [
+            b for b in target_blobs
+            if move_path in b.name or b.name.endswith(".json")
+        ]
 
         blobs_to_load = [b.name for b in parquet_blobs]
 
@@ -157,7 +153,7 @@ def process_table(storage_client, bq_client, config, table_cfg):
 
             blobs_to_load = clean_parquet_files(
                 storage_client=storage_client,
-                target_bucket_name=target_bucket_name,
+                bucket_name=bucket_name,
                 parquet_blobs=parquet_blobs,
                 source_root=source_root,
                 target_root=cleaned_prefix,
@@ -172,7 +168,7 @@ def process_table(storage_client, bq_client, config, table_cfg):
         # =========================================================
         inserted_rows = load_parquet_to_bq(
             bq_client=bq_client,
-            target_bucket_name=target_bucket_name,
+            bucket_name=bucket_name,
             parquet_blobs=blobs_to_load,
             raw_table_id=raw_table_id,
             partition_by=partition_by,
@@ -233,7 +229,7 @@ def process_table(storage_client, bq_client, config, table_cfg):
         # =========================================================
         archive_files(
             storage_client=storage_client,
-            target_bucket_name=target_bucket_name,
+            bucket_name=bucket_name,
             blobs=move_blobs,
             source_root=source_root,
             archive_root=archive_root,
@@ -282,7 +278,7 @@ def process_table(storage_client, bq_client, config, table_cfg):
         try:
             move_to_error(
                 storage_client=storage_client,
-                target_bucket_name=target_bucket_name,
+                bucket_name=bucket_name,
                 blobs=move_blobs,
                 source_root=source_root,
                 error_root=error_root,
@@ -298,7 +294,7 @@ def process_table(storage_client, bq_client, config, table_cfg):
         # 9. CLEANUP TEMP FILES ONLY (ON TARGET BUCKET)
         # =========================================================
         if cleaned_blobs_to_delete:
-            bucket = storage_client.bucket(target_bucket_name)
+            bucket = storage_client.bucket(bucket_name)
 
             for blob_name in cleaned_blobs_to_delete:
                 try:
