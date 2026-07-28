@@ -1,6 +1,7 @@
 {
   "project_id": "govuk-knowledge-graph",
-  "bucket_name": "govuk-s3-mirror_govuk-database-backups",
+  "source_bucket_name": "govuk-s3-mirror_govuk-database-backups",
+  "target_bucket_name": "govuk-knowledge-graph-data-processed",
   "source_root": "parquet/landing/",
   "archive_root": "parquet/archive/",
   "error_root": "parquet/errors/",

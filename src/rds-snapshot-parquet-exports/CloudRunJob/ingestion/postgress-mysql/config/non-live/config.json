@@ -1,6 +1,7 @@
 {
   "project_id": "govuk-knowledge-graph-dev",
-  "bucket_name": "govuk-knowledge-graph-dev-test",
+  "source_bucket_name": "govuk-knowledge-graph-dev-test",
+  "target_bucket_name": "govuk-knowledge-graph-dev-data-processed",
   "source_root": "parquet/landing/",
   "archive_root": "parquet/archive/",
   "error_root": "parquet/errors/",
