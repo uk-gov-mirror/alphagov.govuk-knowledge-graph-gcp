@@ -19,7 +19,6 @@ logger = get_logger(__name__)
 # =========================================================
 
 def load_config():
-    # Read the path from the environment, defaulting to non-live for safety
     CONFIG_FILE = os.getenv("CONFIG_PATH", "config/non-live/config.json")
 
     with open(CONFIG_FILE, "r", encoding="utf-8") as f:
@@ -42,51 +41,94 @@ def load_config():
 
 
 # =========================================================
-# MONGO → GCS STREAM
+# SHAPE DISCOVERY (pass 1)
 # =========================================================
-def normalize_for_bq(doc):
+
+def discover_shapes(db, collection):
     """
-    Ensures every field value is BigQuery-scalar-safe before it's written
-    to the NDJSON export. Mongo is schema-less, so the same field name can
-    hold a scalar on one document and a list or nested object on another
-    (e.g. auth_bypass_ids as a single id sometimes, a list of ids other
-    times). Rather than trying to model that as REPEATED/RECORD in
-    BigQuery — which breaks the moment a field's shape changes between
-    runs, since BigQuery won't let you flip an existing column's mode —
-    we serialize lists/dicts to a JSON string. Every field then stays a
-    plain NULLABLE STRING, permanently, no matter how Mongo's shape drifts.
+    First pass over a collection: determines which field names exist
+    (all_fields) and which of those are ever a list on at least one
+    document (array_fields). No data is written here — this only
+    decides how the export pass below should shape each field so it's
+    consistent with a REPEATED vs NULLABLE BigQuery column.
+    """
+    all_fields = set()
+    array_fields = set()
+
+    for doc in db[collection].find():
+        clean = sanitize_document(doc)
+        for key, value in clean.items():
+            key_lower = key.lower()
+            all_fields.add(key)
+            if isinstance(value, list):
+                array_fields.add(key_lower)
+
+    return all_fields, array_fields
+
+
+# =========================================================
+# SCALAR-SAFE COERCION
+# =========================================================
+
+def _to_bq_string(value):
+    """Coerces any single value to a BigQuery-STRING-safe scalar."""
+    if value is None:
+        return None
+    if isinstance(value, (list, dict)):
+        return json.dumps(value, default=str)
+    if isinstance(value, str):
+        return value
+    return str(value)
+
+
+def normalize_for_bq(doc, repeated_fields):
+    """
+    Shapes a document for export, given the final decision (from
+    discover_shapes + sync_schema) about which fields are REPEATED.
+
+    - Fields marked repeated: always emitted as a JSON array, even if
+      this particular document only has a scalar for it (wrapped into
+      a single-element list) or is missing it (empty list). Elements
+      that are themselves lists/dicts are JSON-stringified so every
+      element is a STRING, matching a REPEATED STRING column.
+    - All other fields: any list/dict is JSON-stringified to a scalar
+      string; everything else is cast to a plain string.
     """
     normalized = {}
     for key, value in doc.items():
-        if isinstance(value, (list, dict)):
-            normalized[key] = json.dumps(value, default=str)
+        key_lower = key.lower()
+        if key_lower in repeated_fields:
+            if isinstance(value, list):
+                items = value
+            elif value is None:
+                items = []
+            else:
+                items = [value]
+            normalized[key] = [_to_bq_string(v) for v in items]
         else:
-            normalized[key] = value
+            normalized[key] = _to_bq_string(value)
     return normalized
 
 
-def stream_to_gcs(db, collection, bucket, blob_name):
+def write_to_gcs(db, collection, bucket, blob_name, repeated_fields):
     """
-    Streams documents from a Mongo collection to a GCS blob as
-    newline-delimited JSON. Also tracks the union of all field
-    names encountered so the caller can sync the BigQuery schema
-    before loading.
+    Second pass over a collection: writes newline-delimited JSON to
+    GCS, shaped according to repeated_fields decided upfront.
     """
     blob = bucket.blob(blob_name)
     count = 0
-    fields = set()
 
     with blob.open("w", encoding="utf-8") as f:
         for doc in db[collection].find():
-            clean = normalize_for_bq(sanitize_document(doc))
-            fields.update(clean.keys())
+            clean = normalize_for_bq(sanitize_document(doc), repeated_fields)
             f.write(json.dumps(clean) + "\n")
             count += 1
 
             if count % 1000000 == 0:
                 logger.info("Processed %s docs", count)
 
-    return count, fields
+    return count
+
 
 # =========================================================
 # BACKUP RESOLUTION
@@ -135,6 +177,7 @@ def main():
     uploaded_blobs = []
     total_count = 0
     all_fields = set()
+    array_fields = set()
 
     raw_audit_id = None
     inserted_rows = 0
@@ -177,26 +220,58 @@ def main():
                 db for db in mongo.client.list_database_names()
                 if db not in ["admin", "local", "config"]
             ]
+            dbs_with_collection = []
 
             # =========================================================
-            # STREAM TO GCS
+            # PASS 1 — DISCOVER FIELD SHAPES ACROSS ALL DBs
             # =========================================================
             for db_name in dbs:
                 db = mongo.client[db_name]
-
                 if config.collection_name not in db.list_collection_names():
                     continue
 
+                dbs_with_collection.append(db_name)
+                fields, arrays = discover_shapes(db, config.collection_name)
+                all_fields |= fields
+                array_fields |= arrays
+
+            if not dbs_with_collection:
+                logger.warning("No data found across databases.")
+                update_audit_record(
+                    bq_client=bq_client,
+                    audit_table_id=audit_table_id,
+                    audit_id=raw_audit_id,
+                    status="no_files",
+                    inserted_rows=0,
+                    error_message="No JSON records written"
+                )
+                return
+
+            # =========================================================
+            # SYNC SCHEMA (before writing, so we know which fields to
+            # wrap into arrays during the write pass)
+            # =========================================================
+            schema, repeated_fields = bq.sync_schema(
+                config.dataset_id,
+                config.table_name or config.collection_name,
+                all_fields,
+                array_fields
+            )
+
+            # =========================================================
+            # PASS 2 — WRITE TO GCS, SHAPED PER FINAL SCHEMA
+            # =========================================================
+            for db_name in dbs_with_collection:
+                db = mongo.client[db_name]
                 blob_name = f"temp/{run_id}/{db_name}_{config.collection_name}.json"
 
-                count, fields = stream_to_gcs(
+                count = write_to_gcs(
                     db,
                     config.collection_name,
                     bucket,
-                    blob_name
+                    blob_name,
+                    repeated_fields
                 )
-
-                all_fields |= fields
 
                 if count:
                     uploaded_blobs.append(blob_name)
@@ -204,12 +279,8 @@ def main():
                 else:
                     logger.warning("No data in DB: %s", db_name)
 
-            # =========================================================
-            # NO DATA CASE
-            # =========================================================
             if total_count == 0:
                 logger.warning("No data found across databases.")
-
                 update_audit_record(
                     bq_client=bq_client,
                     audit_table_id=audit_table_id,
@@ -221,15 +292,6 @@ def main():
                 return
 
             inserted_rows = total_count
-
-            # =========================================================
-            # SYNC SCHEMA (preserve existing columns, append new ones)
-            # =========================================================
-            schema = bq.sync_schema(
-                config.dataset_id,
-                config.table_name or config.collection_name,
-                all_fields
-            )
 
             # =========================================================
             # LOAD TO BIGQUERY
@@ -271,9 +333,6 @@ def main():
         raise JobFailure(str(e)) from e
 
     finally:
-        # =========================================================
-        # CLEANUP GCS + LOCAL FILE
-        # =========================================================
         logger.info("Cleaning up temporary files...")
 
         for blob_name in uploaded_blobs:

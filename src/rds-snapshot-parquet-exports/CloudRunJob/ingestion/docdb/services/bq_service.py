@@ -21,63 +21,110 @@ class BigQueryService:
             self.client.create_dataset(dataset)
             logger.info("Created dataset %s", dataset_id)
 
-    def sync_schema(self, dataset_id, table_name, source_fields):
+    def sync_schema(self, dataset_id, table_name, source_fields, array_fields):
         """
-        Ensures the target table contains every field in `source_fields`.
-        Existing columns, types, and order are preserved; any fields
-        present in the source but not yet in the table are appended
-        to the end as nullable STRINGs.
+        Reconciles the target table's schema against what was discovered
+        in the source data, preserving REPEATED array columns instead of
+        flattening everything to scalar STRING.
 
-        Returns the resulting full table schema, or None if the table
-        doesn't exist yet (first-ever load — let load_from_gcs autodetect).
+        - source_fields: every field name seen across all documents.
+        - array_fields: subset of source_fields that were seen as a list
+          on at least one document this run.
+
+        Rules:
+        - Existing columns are kept as-is UNLESS they need to become
+          REPEATED (because array_fields or the column's own existing
+          mode says so) and currently aren't — or they're RECORD/STRUCT,
+          which this pipeline doesn't model; those get coerced to
+          REPEATED/NULLABLE STRING as appropriate.
+        - Any existing REPEATED column stays REPEATED even if this run's
+          data doesn't happen to contain an array for it, so historical
+          rows/queries relying on UNNEST keep working.
+        - New fields not yet in the table are appended: REPEATED STRING
+          if discovered as an array, NULLABLE STRING otherwise.
+        - The table is only dropped/recreated if an existing column's
+          resolved mode or type actually differs from what's stored —
+          not as a blanket rebuild. Safe here because the pipeline
+          always does a full WRITE_TRUNCATE_DATA load right after.
+
+        Returns (schema, repeated_field_names) where repeated_field_names
+        is a lowercase set the caller uses to decide, per field, whether
+        to wrap scalar values into single-element arrays before writing.
         """
         table_ref = self.client.dataset(dataset_id).table(table_name)
 
         try:
             table = self.client.get_table(table_ref)
         except NotFound:
-            return None
+            table = None
 
-        existing_names = {f.name.lower() for f in table.schema}
-        new_fields = [
-            bigquery.SchemaField(name, "STRING", mode="NULLABLE")
-            for name in sorted(source_fields)
-            if name.lower() not in existing_names
-        ]
+        final_fields = []
+        seen = set()
 
-        if not new_fields:
-            return table.schema
+        if table:
+            for f in table.schema:
+                key = f.name.lower()
+                seen.add(key)
+                should_be_repeated = key in array_fields or f.mode == "REPEATED"
+                if f.field_type in ("RECORD", "STRUCT") or (should_be_repeated and f.mode != "REPEATED"):
+                    final_fields.append(
+                        bigquery.SchemaField(
+                            f.name, "STRING",
+                            mode="REPEATED" if should_be_repeated else "NULLABLE"
+                        )
+                    )
+                else:
+                    final_fields.append(f)
 
-        logger.info(
-            "Adding %d new column(s) to %s.%s: %s",
-            len(new_fields), dataset_id, table_name,
-            [f.name for f in new_fields]
-        )
+        for name in sorted(source_fields):
+            key = name.lower()
+            if key in seen:
+                continue
+            mode = "REPEATED" if key in array_fields else "NULLABLE"
+            final_fields.append(bigquery.SchemaField(name, "STRING", mode=mode))
+            seen.add(key)
 
-        table.schema = list(table.schema) + new_fields
-        table = self.client.update_table(table, ["schema"])
-        return table.schema
+        repeated_field_names = {f.name.lower() for f in final_fields if f.mode == "REPEATED"}
 
-    def load_from_gcs(self, dataset_id, table_name, uri, schema=None):
+        needs_recreate = False
+        if table:
+            existing_by_name = {f.name.lower(): f for f in table.schema}
+            for nf in final_fields:
+                old = existing_by_name.get(nf.name.lower())
+                if old is not None and (old.mode != nf.mode or old.field_type != nf.field_type):
+                    needs_recreate = True
+                    break
+
+        if table and needs_recreate:
+            logger.warning(
+                "Recreating table %s.%s — one or more column modes/types changed",
+                dataset_id, table_name
+            )
+            self.client.delete_table(table_ref)
+            table = None
+
+        if table is None:
+            new_table = bigquery.Table(table_ref, schema=final_fields)
+            table = self.client.create_table(new_table)
+            logger.info("Created table %s.%s with %d columns", dataset_id, table_name, len(final_fields))
+        elif len(final_fields) > len(table.schema):
+            added = [f.name for f in final_fields if f.name.lower() not in existing_by_name]
+            logger.info("Adding %d new column(s) to %s.%s: %s", len(added), dataset_id, table_name, added)
+            table.schema = final_fields
+            table = self.client.update_table(table, ["schema"])
+
+        return table.schema, repeated_field_names
+
+    def load_from_gcs(self, dataset_id, table_name, uri, schema):
         table_ref = self.client.dataset(dataset_id).table(table_name)
 
-        if schema:
-            # Table schema already synced — load deterministically, no autodetect
-            job_config = bigquery.LoadJobConfig(
-                source_format=bigquery.SourceFormat.NEWLINE_DELIMITED_JSON,
-                write_disposition=bigquery.WriteDisposition.WRITE_TRUNCATE_DATA,
-                schema=schema,
-                autodetect=False,
-                ignore_unknown_values=False,
-            )
-        else:
-            # First-ever load: table doesn't exist yet, let BigQuery infer it
-            job_config = bigquery.LoadJobConfig(
-                source_format=bigquery.SourceFormat.NEWLINE_DELIMITED_JSON,
-                write_disposition=bigquery.WriteDisposition.WRITE_TRUNCATE_DATA,
-                autodetect=True,
-                ignore_unknown_values=False,
-            )
+        job_config = bigquery.LoadJobConfig(
+            source_format=bigquery.SourceFormat.NEWLINE_DELIMITED_JSON,
+            write_disposition=bigquery.WriteDisposition.WRITE_TRUNCATE_DATA,
+            schema=schema,
+            autodetect=False,
+            ignore_unknown_values=False,
+        )
 
         job = self.client.load_table_from_uri(uri, table_ref, job_config=job_config)
         job.result()
