@@ -46,6 +46,10 @@ class BigQueryService:
           resolved mode or type actually differs from what's stored —
           not as a blanket rebuild. Safe here because the pipeline
           always does a full WRITE_TRUNCATE_DATA load right after.
+        - If a recreate is needed, the old table's partitioning,
+          clustering, and options (friendly name, description, labels)
+          are captured beforehand and reapplied to the new table, so
+          they are never silently dropped.
 
         Returns (schema, repeated_field_names) where repeated_field_names
         is a lowercase set the caller uses to decide, per field, whether
@@ -60,8 +64,10 @@ class BigQueryService:
 
         final_fields = []
         seen = set()
+        existing_by_name = {}
 
         if table:
+            existing_by_name = {f.name.lower(): f for f in table.schema}
             for f in table.schema:
                 key = f.name.lower()
                 seen.add(key)
@@ -88,7 +94,6 @@ class BigQueryService:
 
         needs_recreate = False
         if table:
-            existing_by_name = {f.name.lower(): f for f in table.schema}
             for nf in final_fields:
                 old = existing_by_name.get(nf.name.lower())
                 if old is not None and (old.mode != nf.mode or old.field_type != nf.field_type):
@@ -97,19 +102,42 @@ class BigQueryService:
 
         if table and needs_recreate:
             logger.warning(
-                "Recreating table %s.%s — one or more column modes/types changed",
+                "Recreating table %s.%s — one or more column modes/types changed. "
+                "Preserving partitioning, clustering, and table options.",
                 dataset_id, table_name
             )
-            self.client.delete_table(table_ref)
-            table = None
 
-        if table is None:
+            time_partitioning = table.time_partitioning
+            range_partitioning = table.range_partitioning
+            clustering_fields = table.clustering_fields
+            friendly_name = table.friendly_name
+            description = table.description
+            labels = table.labels
+
+            self.client.delete_table(table_ref)
+
+            new_table = bigquery.Table(table_ref, schema=final_fields)
+            new_table.time_partitioning = time_partitioning
+            new_table.range_partitioning = range_partitioning
+            new_table.clustering_fields = clustering_fields
+            new_table.friendly_name = friendly_name
+            new_table.description = description
+            new_table.labels = labels
+
+            table = self.client.create_table(new_table)
+            logger.info("Recreated table %s.%s with %d columns", dataset_id, table_name, len(final_fields))
+
+        elif table is None:
             new_table = bigquery.Table(table_ref, schema=final_fields)
             table = self.client.create_table(new_table)
             logger.info("Created table %s.%s with %d columns", dataset_id, table_name, len(final_fields))
+
         elif len(final_fields) > len(table.schema):
             added = [f.name for f in final_fields if f.name.lower() not in existing_by_name]
-            logger.info("Adding %d new column(s) to %s.%s: %s", len(added), dataset_id, table_name, added)
+            logger.info(
+                "Adding %d new column(s) to %s.%s: %s",
+                len(added), dataset_id, table_name, added
+            )
             table.schema = final_fields
             table = self.client.update_table(table, ["schema"])
 
