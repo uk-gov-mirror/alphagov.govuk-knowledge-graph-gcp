@@ -46,18 +46,27 @@ def load_config():
 # =========================================================
 
 def stream_to_gcs(db, collection, bucket, blob_name):
+    """
+    Streams documents from a Mongo collection to a GCS blob as
+    newline-delimited JSON. Also tracks the union of all field
+    names encountered so the caller can sync the BigQuery schema
+    before loading.
+    """
     blob = bucket.blob(blob_name)
     count = 0
+    fields = set()
 
     with blob.open("w", encoding="utf-8") as f:
         for doc in db[collection].find():
-            f.write(json.dumps(sanitize_document(doc)) + "\n")
+            clean = sanitize_document(doc)
+            fields.update(clean.keys())
+            f.write(json.dumps(clean) + "\n")
             count += 1
 
             if count % 1000000 == 0:
                 logger.info("Processed %s docs", count)
 
-    return count
+    return count, fields
 
 
 # =========================================================
@@ -106,6 +115,7 @@ def main():
 
     uploaded_blobs = []
     total_count = 0
+    all_fields = set()
 
     raw_audit_id = None
     inserted_rows = 0
@@ -160,12 +170,14 @@ def main():
 
                 blob_name = f"temp/{run_id}/{db_name}_{config.collection_name}.json"
 
-                count = stream_to_gcs(
+                count, fields = stream_to_gcs(
                     db,
                     config.collection_name,
                     bucket,
                     blob_name
                 )
+
+                all_fields |= fields
 
                 if count:
                     uploaded_blobs.append(blob_name)
@@ -192,6 +204,15 @@ def main():
             inserted_rows = total_count
 
             # =========================================================
+            # SYNC SCHEMA (preserve existing columns, append new ones)
+            # =========================================================
+            schema = bq.sync_schema(
+                config.dataset_id,
+                config.table_name or config.collection_name,
+                all_fields
+            )
+
+            # =========================================================
             # LOAD TO BIGQUERY
             # =========================================================
             uri = f"gs://{config.bucket_name}/temp/{run_id}/*.json"
@@ -199,7 +220,8 @@ def main():
             bq.load_from_gcs(
                 config.dataset_id,
                 config.table_name or config.collection_name,
-                uri
+                uri,
+                schema=schema
             )
 
             update_audit_record(
