@@ -1,6 +1,7 @@
 from google.cloud import bigquery
 from google.cloud import storage
 import json
+from urllib.parse import urlparse
 from utils.logging import get_logger
 
 logger = get_logger(__name__)
@@ -31,14 +32,19 @@ class BigQueryService:
         existing_field_names = {field.name for field in existing_schema}
         logger.info("Retrieved existing schema for table %s.%s to enforce structure.", dataset_id, table_name)
 
-        # 2. Extract keys and types from GCS JSON file by streaming it
-        logger.info("Scanning GCS file to discover all JSON fields...")
-        if not uri.startswith("gs://"):
-            raise ValueError("URI must be a GCS path starting with gs://")
+        # 2.  GCS URI parsing to handle any accidental whitespaces or formatting issues
+        cleaned_uri = uri.strip()
+        if not cleaned_uri.lower().startswith("gs://"):
+            raise ValueError(f"URI must be a GCS path starting with gs://, got: {uri}")
         
-        path_parts = uri[5:].split("/", 1)
-        bucket_name = path_parts
-        blob_path = path_parts 
+        parsed_uri = urlparse(cleaned_uri)
+        bucket_name = parsed_uri.netloc.strip()
+        blob_path = parsed_uri.path.strip().lstrip("/")
+        
+        if not bucket_name or not blob_path:
+            raise ValueError(f"Invalid GCS URI format: '{uri}'. Must contain both bucket and file path.")
+
+        logger.info("Scanning GCS file 'gs://%s/%s' to discover all JSON fields...", bucket_name, blob_path)
         
         storage_client = storage.Client()
         bucket = storage_client.bucket(bucket_name)
@@ -109,7 +115,7 @@ class BigQueryService:
             ignore_unknown_values=False,  # Keep as False so any syntax errors are caught, but no "No such field" errors can happen now
         )
 
-        job = self.client.load_table_from_uri(uri, table_ref, job_config=job_config)
+        job = self.client.load_table_from_uri(cleaned_uri, table_ref, job_config=job_config)
         job.result()
 
         logger.info("Loaded and refreshed data in %s.%s", dataset_id, table_name)
