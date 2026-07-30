@@ -44,6 +44,26 @@ def load_config():
 # =========================================================
 # MONGO → GCS STREAM
 # =========================================================
+def normalize_for_bq(doc):
+    """
+    Ensures every field value is BigQuery-scalar-safe before it's written
+    to the NDJSON export. Mongo is schema-less, so the same field name can
+    hold a scalar on one document and a list or nested object on another
+    (e.g. auth_bypass_ids as a single id sometimes, a list of ids other
+    times). Rather than trying to model that as REPEATED/RECORD in
+    BigQuery — which breaks the moment a field's shape changes between
+    runs, since BigQuery won't let you flip an existing column's mode —
+    we serialize lists/dicts to a JSON string. Every field then stays a
+    plain NULLABLE STRING, permanently, no matter how Mongo's shape drifts.
+    """
+    normalized = {}
+    for key, value in doc.items():
+        if isinstance(value, (list, dict)):
+            normalized[key] = json.dumps(value, default=str)
+        else:
+            normalized[key] = value
+    return normalized
+
 
 def stream_to_gcs(db, collection, bucket, blob_name):
     """
@@ -58,7 +78,7 @@ def stream_to_gcs(db, collection, bucket, blob_name):
 
     with blob.open("w", encoding="utf-8") as f:
         for doc in db[collection].find():
-            clean = sanitize_document(doc)
+            clean = normalize_for_bq(sanitize_document(doc))
             fields.update(clean.keys())
             f.write(json.dumps(clean) + "\n")
             count += 1
@@ -67,7 +87,6 @@ def stream_to_gcs(db, collection, bucket, blob_name):
                 logger.info("Processed %s docs", count)
 
     return count, fields
-
 
 # =========================================================
 # BACKUP RESOLUTION
