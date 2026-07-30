@@ -23,12 +23,21 @@ class BigQueryService:
     def load_from_gcs(self, dataset_id, table_name, uri):
         table_ref = self.client.dataset(dataset_id).table(table_name)
 
+        # 1. Fetch the exact schema of the target table that already exists
+        target_table = self.client.get_table(table_ref)
+        existing_schema = target_table.schema
+        logger.info("Retrieved existing schema for table %s.%s to enforce structure.", dataset_id, table_name)
+
+        # 2. Configure the job to lock to the existing schema and ignore new fields
         job_config = bigquery.LoadJobConfig(
             source_format=bigquery.SourceFormat.NEWLINE_DELIMITED_JSON,
-            autodetect=True,
-            write_disposition=bigquery.WriteDisposition.WRITE_TRUNCATE
+            schema=existing_schema,               # Force BigQuery to use the pre-existing schema only
+            ignore_unknown_values=True,           # Silently drop extra/new JSON columns
+            write_disposition=bigquery.WriteDisposition.WRITE_TRUNCATE  # Empty existing data, keeping the table structure
+            # Note: 'autodetect' is omitted (defaults to False) to prevent automatic schema changes
         )
 
+        # 3. Trigger the load job
         job = self.client.load_table_from_uri(uri, table_ref, job_config=job_config)
         job.result()
 
