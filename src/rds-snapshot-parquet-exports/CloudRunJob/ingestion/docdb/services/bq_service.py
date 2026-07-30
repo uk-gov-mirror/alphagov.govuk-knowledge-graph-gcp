@@ -20,24 +20,28 @@ class BigQueryService:
             self.client.create_dataset(dataset)
             logger.info("Created dataset %s", dataset_id)
 
+
     def load_from_gcs(self, dataset_id, table_name, uri):
         table_ref = self.client.dataset(dataset_id).table(table_name)
 
-        # 1. Fetch the exact schema of the target table that already exists
-        target_table = self.client.get_table(table_ref)
-        existing_schema = target_table.schema
-        logger.info("Retrieved existing schema for table %s.%s to enforce structure.", dataset_id, table_name)
-
-        # 2. Configure the job to lock to the existing schema and ignore new fields
+        # Configure the job for schema evolution
         job_config = bigquery.LoadJobConfig(
             source_format=bigquery.SourceFormat.NEWLINE_DELIMITED_JSON,
-            schema=existing_schema,               # Force BigQuery to use the pre-existing schema only
-            ignore_unknown_values=True,           # Silently drop extra/new JSON columns
-            write_disposition=bigquery.WriteDisposition.WRITE_TRUNCATE  # Empty existing data, keeping the table structure
-            # Note: 'autodetect' is omitted (defaults to False) to prevent automatic schema changes
+            
+            # 1. Truncates table data, but retains all existing columns and metadata
+            write_disposition=bigquery.WriteDisposition.WRITE_TRUNCATE_DATA,
+            
+            # 2. Tell BigQuery to automatically add any new fields it detects in the file
+            schema_update_options=[bigquery.SchemaUpdateOption.ALLOW_FIELD_ADDITION],
+            
+            # 3. Enable autodetection so BigQuery scans the JSON for new fields
+            autodetect=True,
+            
+            # 4. Must be False so BigQuery attempts to load new fields instead of ignoring them
+            ignore_unknown_values=False,
         )
 
-        # 3. Trigger the load job
+        # Trigger the load job
         job = self.client.load_table_from_uri(uri, table_ref, job_config=job_config)
         job.result()
 
