@@ -11,12 +11,11 @@ from services.parquet_cleaner import clean_parquet_files
 from services.file_archiver import archive_files, move_to_error
 
 
-
 logging.basicConfig(level=logging.INFO, format="%(levelname)s %(message)s")
 logger = logging.getLogger(__name__)
 
 
-def process_table(storage_client, bq_client, config, table_cfg):
+def process_table(storage_client, bq_client, config, table_cfg, recovery_mode=False):
 
     project_id = config["project_id"]
     source_bucket_name = config["source_bucket_name"]
@@ -74,23 +73,66 @@ def process_table(storage_client, bq_client, config, table_cfg):
     error_message = None
 
     try:
+        # We need these lists of blobs in both normal and recovery mode
+        target_copied_blobs = []
+        parquet_blobs = []
+        source_parquet_count = 0
+
         # =========================================================
-        # 1. DISCOVER FILES IN THE SOURCE BUCKET
+        # RECOVERY OR NORMAL MODE
         # =========================================================
-        all_source_blobs = list_blobs(storage_client, source_bucket_name, gcs_prefix)
+        if recovery_mode:
+            logger.info("RECOVERY MODE ACTIVE: Moving files from error back to landing in target bucket.")
+            target_bucket = storage_client.bucket(bucket_name)
 
-        # Filter source blobs for ONLY the current feed BEFORE copying
-        source_parquet_blobs = [
-            b for b in all_source_blobs
-            if path_contains in b.name and b.name.endswith(".parquet")
-        ]
+            # Ensure trailing slashes are handled safely
+            error_prefix = error_root if error_root.endswith('/') else f"{error_root}/"
+            source_prefix = source_root if source_root.endswith('/') else f"{source_root}/"
 
-        source_move_blobs = [
-            b for b in all_source_blobs
-            if move_path in b.name or b.name.endswith(".json")
-        ]
+            # 1. Discover files in the error directory of target bucket
+            all_error_blobs = list(storage_client.list_blobs(bucket_name, prefix=error_prefix))
 
-        source_parquet_count = len(source_parquet_blobs)
+            # Filter error blobs matching this specific feed
+            error_feed_blobs = [
+                b for b in all_error_blobs
+                if (path_contains in b.name and b.name.endswith(".parquet"))
+                or (move_path in b.name or b.name.endswith(".json"))
+            ]
+
+            # 2. Move error files back to the landing zone (source_root)
+            for blob in error_feed_blobs:
+                relative_path = blob.name[len(error_prefix):]
+                new_name = f"{source_prefix}{relative_path}"
+                logger.info("Moving %s back to landing: %s", blob.name, new_name)
+                
+                new_blob = target_bucket.copy_blob(blob, target_bucket, new_name)
+                blob.delete()
+                target_copied_blobs.append(new_blob)
+
+            parquet_blobs = [
+                b for b in target_copied_blobs
+                if path_contains in b.name and b.name.endswith(".parquet")
+            ]
+            source_parquet_count = len(parquet_blobs)
+
+        else:
+            # =========================================================
+            # NORMAL MODE: 1. DISCOVER FILES IN THE SOURCE BUCKET
+            # =========================================================
+            all_source_blobs = list_blobs(storage_client, source_bucket_name, gcs_prefix)
+
+            # Filter source blobs for ONLY the current feed BEFORE copying
+            source_parquet_blobs = [
+                b for b in all_source_blobs
+                if path_contains in b.name and b.name.endswith(".parquet")
+            ]
+
+            source_move_blobs = [
+                b for b in all_source_blobs
+                if move_path in b.name or b.name.endswith(".json")
+            ]
+
+            source_parquet_count = len(source_parquet_blobs)
 
         # =========================================================
         # 2. INSERT RAW AUDIT FIRST (IMPORTANT)
@@ -98,7 +140,7 @@ def process_table(storage_client, bq_client, config, table_cfg):
         raw_audit_id = insert_audit_record(
             bq_client=bq_client,
             audit_table_id=audit_table_id,
-            audit_stage="raw_load",
+            audit_stage="raw_load_recovery" if recovery_mode else "raw_load",
             bq_dataset=raw_dataset,
             bq_table=raw_table,
             file_type="parquet",
@@ -111,7 +153,8 @@ def process_table(storage_client, bq_client, config, table_cfg):
         # 3. HANDLE NO FILES CASE
         # =========================================================
         if source_parquet_count == 0:
-            logger.info("No parquet files found for pattern '%s' in %s", path_contains, source_bucket_name)
+            logger.info("No parquet files found for pattern '%s' (Recovery: %s) in %s", 
+                        path_contains, recovery_mode, source_bucket_name if not recovery_mode else bucket_name)
 
             raw_status = "no_files"
 
@@ -126,30 +169,32 @@ def process_table(storage_client, bq_client, config, table_cfg):
             return
 
         # =================================================================
-        # 3.5 COPY FILES FROM SOURCE TO TARGET BUCKET (FILTERED FEED ONLY)
+        # 3.5 COPY FILES FROM SOURCE TO TARGET BUCKET (SKIP IF RECOVERY)
         # =================================================================
-        # Combine and deduplicate to get the exact files that belong only to this specific table/feed
-        blobs_to_copy = list({b.name: b for b in source_parquet_blobs + source_move_blobs}.values())
+        if not recovery_mode:
+            # Combine and deduplicate to get the exact files that belong only to this specific table/feed
+            blobs_to_copy = list({b.name: b for b in source_parquet_blobs + source_move_blobs}.values())
 
-        logger.info(
-            "Copying %d discovered files for feed '%s' from source '%s' to target '%s'",
-            len(blobs_to_copy), path_contains, source_bucket_name, target_bucket_name
-        )
+            logger.info(
+                "Copying %d discovered files for feed '%s' from source '%s' to target '%s'",
+                len(blobs_to_copy), path_contains, source_bucket_name, target_bucket_name
+            )
 
-        # Server-side copy ONLY the files belonging to this specific feed
-        target_copied_blobs = copy_blobs_to_bucket(
-            storage_client=storage_client,
-            source_bucket_name=source_bucket_name,
-            target_bucket_name=target_bucket_name,
-            blobs=blobs_to_copy
-        )
+            # Server-side copy ONLY the files belonging to this specific feed
+            target_copied_blobs = copy_blobs_to_bucket(
+                storage_client=storage_client,
+                source_bucket_name=source_bucket_name,
+                target_bucket_name=target_bucket_name,
+                blobs=blobs_to_copy
+            )
 
-        # Filter the lists of blobs directly from the newly copied target bucket references
-        parquet_blobs = [
-            b for b in target_copied_blobs
-            if path_contains in b.name and b.name.endswith(".parquet")
-        ]
+            # Filter the lists of blobs directly from the newly copied target bucket references
+            parquet_blobs = [
+                b for b in target_copied_blobs
+                if path_contains in b.name and b.name.endswith(".parquet")
+            ]
 
+        # Regardless of recovery or normal mode, we now define the move/load variables on target_copied_blobs
         move_blobs = [
             b for b in target_copied_blobs
             if move_path in b.name or b.name.endswith(".json")
@@ -251,11 +296,10 @@ def process_table(storage_client, bq_client, config, table_cfg):
          )
         logger.info("--------- Finished table %s.%s ---------", raw_dataset, dw_table)
         return
-        
 
         # =========================================================
         # 8. FAILURE AUDIT UPDATES
-        # =========================================================
+        # =========================================================        
 
     except Exception as e:
         error_message = str(e)
@@ -332,6 +376,9 @@ if __name__ == "__main__":
     task_index = int(os.environ.get("CLOUD_RUN_TASK_INDEX", 0))
     task_count = int(os.environ.get("CLOUD_RUN_TASK_COUNT", 1))
 
+    # Read recovery mode from config or environment variable
+    recovery_mode = os.environ.get("RECOVERY_MODE", "false").lower() in ("true", "1", "yes")
+
     all_tables = config.get("tables", [])
     
     # 2. PARTITION WORKLOAD (Modulo partitioning)
@@ -342,8 +389,8 @@ if __name__ == "__main__":
     ]
 
     logger.info(
-        "Task %d/%d initialized. Processing %d out of %d total tables.",
-        task_index + 1, task_count, len(assigned_tables), len(all_tables)
+        "Task %d/%d initialized. Processing %d out of %d total tables. (Recovery Mode: %s)",
+        task_index + 1, task_count, len(assigned_tables), len(all_tables), recovery_mode
     )
 
     if not assigned_tables:
@@ -366,7 +413,13 @@ if __name__ == "__main__":
         )
 
         try:
-            process_table(storage_client, bq_client, config, table_cfg)
+            process_table(
+                storage_client=storage_client, 
+                bq_client=bq_client, 
+                config=config, 
+                table_cfg=table_cfg, 
+                recovery_mode=recovery_mode
+            )
 
         except Exception:
             failed_tables.append(
