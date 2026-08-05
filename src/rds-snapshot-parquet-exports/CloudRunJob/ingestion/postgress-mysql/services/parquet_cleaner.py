@@ -27,7 +27,7 @@ def clean_parquet_files(
     """
 
     # ------------------------------------------------
-    # NO CLEANING RULES
+    # 1.0 NO CLEANING RULES
     # ------------------------------------------------
     if not cleaning_rules:
         logger.info(
@@ -37,13 +37,13 @@ def clean_parquet_files(
         return [b.name for b in parquet_blobs]
 
     # ------------------------------------------------
-    # UNIQUE TEMP DIRECTORY (CLOUD RUN SAFE)
+    # 2.0 UNIQUE TEMP DIRECTORY (CLOUD RUN SAFE)
     # ------------------------------------------------
     temp_dir = f"{temp_dir}_{uuid.uuid4().hex}"
     logger.info("Using temp directory: %s", temp_dir)
 
     # ------------------------------------------------
-    # CLEAN OLD TEMP DIRECTORY (SAFETY)
+    # 3.0 CLEAN OLD TEMP DIRECTORY (SAFETY)
     # ------------------------------------------------
     try:
         if os.path.exists(temp_dir):
@@ -70,7 +70,7 @@ def clean_parquet_files(
     PROGRESS_INTERVAL = 100
 
     # ------------------------------------------------
-    # START BATCH
+    # 4.0 START BATCH
     # ------------------------------------------------
     logger.info(
         "Starting parquet cleaning job. files=%s target=%s",
@@ -79,7 +79,7 @@ def clean_parquet_files(
     )
 
     # ------------------------------------------------
-    # PROCESS FILES
+    # 5.0 PROCESS FILES
     # ------------------------------------------------
     for i, blob in enumerate(parquet_blobs, start=1):
 
@@ -97,7 +97,7 @@ def clean_parquet_files(
                 )
 
             # ------------------------------------------------
-            # PRESERVE STRUCTURE
+            # 5.1 PRESERVE STRUCTURE
             # ------------------------------------------------
             relative_path = blob.name.replace(source_root, "", 1).lstrip("/")
             if not relative_path:
@@ -107,7 +107,7 @@ def clean_parquet_files(
             os.makedirs(os.path.dirname(local_path), exist_ok=True)
 
             # ------------------------------------------------
-            # READ PARQUET
+            # 5.2 READ PARQUET
             # ------------------------------------------------
             table = pq.read_table(gcs_path, filesystem=fs)
 
@@ -124,7 +124,7 @@ def clean_parquet_files(
                     col = col.cast(pa.float64())
 
                 # ------------------------------------------------
-                # NULL REPLACEMENT LOGIC
+                # 5.3 NULL REPLACEMENT LOGIC
                 # ------------------------------------------------
                 if col_name in replace_cols and replace_values:
 
@@ -149,7 +149,7 @@ def clean_parquet_files(
                 new_columns.append(col)
 
             # ------------------------------------------------
-            # BUILD CLEANED TABLE
+            # 5.4 BUILD CLEANED TABLE
             # ------------------------------------------------
             cleaned_table = pa.table(
                 new_columns,
@@ -157,7 +157,7 @@ def clean_parquet_files(
             )
 
             # ------------------------------------------------
-            # WRITE LOCAL FILE
+            # 5.5 WRITE LOCAL FILE
             # ------------------------------------------------
             pq.write_table(cleaned_table, local_path)
 
@@ -179,7 +179,7 @@ def clean_parquet_files(
             raise
 
     # ------------------------------------------------
-    # FINAL CLEANUP
+    # 6.0 FINAL CLEANUP
     # ------------------------------------------------
     try:
         shutil.rmtree(temp_dir, ignore_errors=True)
@@ -188,7 +188,7 @@ def clean_parquet_files(
         logger.exception("Failed final temp directory cleanup: %s", temp_dir)
 
     # ------------------------------------------------
-    # SUMMARY
+    # 7.0 SUMMARY
     # ------------------------------------------------
     logger.info(
         "Parquet cleaning completed. input=%s output=%s",

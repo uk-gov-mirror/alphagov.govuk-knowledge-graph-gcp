@@ -7,7 +7,7 @@ logger = logging.getLogger(__name__)
 
 
 # =================================================
-# INSERT AUDIT RECORD
+# 1.0 INSERT AUDIT RECORD
 # =================================================
 def insert_audit_record(
     bq_client: bigquery.Client,
@@ -83,7 +83,7 @@ def insert_audit_record(
 
 
 # =================================================
-# UPDATE AUDIT RECORD
+# 2.0 UPDATE AUDIT RECORD
 # =================================================
 def update_audit_record(
     bq_client: bigquery.Client,
@@ -137,7 +137,7 @@ def update_audit_record(
 
 
 # =================================================
-# FAIL AUDIT HELPER
+# 3.0 FAIL AUDIT HELPER
 # =================================================
 def fail_audit_record(
     bq_client: bigquery.Client,

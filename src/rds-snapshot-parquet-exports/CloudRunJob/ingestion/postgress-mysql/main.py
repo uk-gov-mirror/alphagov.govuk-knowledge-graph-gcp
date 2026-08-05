@@ -20,18 +20,31 @@ if __name__ == "__main__":
     logger.info("Target bucket: %s", config["target_bucket_name"])
     logger.info("Source root: %s", config["source_root"])
 
-    # 1. READ CLOUD RUN TASK ENVIRONMENT VARIABLES
-    # Fallback to index 0 and count 1 if running locally
+    # =====================================================
+    # CLOUD RUN PARALLEL TASK CONFIGURATION
+    # =====================================================
+    # Get the current task index and total number of tasks.
+    # These values are used to split table processing across
+    # multiple Cloud Run task instances.
+    # =====================================================
+
     task_index = int(os.environ.get("CLOUD_RUN_TASK_INDEX", 0))
     task_count = int(os.environ.get("CLOUD_RUN_TASK_COUNT", 1))
 
-    # Read recovery mode from config or environment variable
+    # =====================================================
+    # Recovery mode processes files from the error location.
+    # Normal mode processes new files from the landing location.
+    # =====================================================
     recovery_mode = os.environ.get("RECOVERY_MODE", "false").lower() in ("true", "1", "yes")
 
     all_tables = config.get("tables", [])
     
-    # 2. PARTITION WORKLOAD (Modulo partitioning)
-    # Each task only takes the tables assigned to its specific index
+    # =====================================================
+    # SPLIT TABLES ACROSS CLOUD RUN TASKS
+    # =====================================================
+    # Each task processes only its assigned tables to avoid
+    # duplicate processing when running in parallel.
+    # =====================================================
     assigned_tables = [
         table for idx, table in enumerate(all_tables) 
         if idx % task_count == task_index
@@ -51,7 +64,7 @@ if __name__ == "__main__":
 
     failed_tables = []
 
-    # 3. PROCESS ONLY ASSIGNED TABLES
+    #  PROCESS ONLY ASSIGNED TABLES
     for table_cfg in assigned_tables:
 
         logger.info(

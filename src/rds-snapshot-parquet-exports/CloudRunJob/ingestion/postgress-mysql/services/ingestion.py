@@ -50,7 +50,7 @@ def process_table(storage_client, bq_client, config, table_cfg, recovery_mode=Fa
     }
 
     # =========================================================
-    # STATE
+    # 1.0 INITIALISE PROCESSING STATE
     # =========================================================
     raw_audit_id = None
     dw_audit_id = None
@@ -72,11 +72,13 @@ def process_table(storage_client, bq_client, config, table_cfg, recovery_mode=Fa
         parquet_blobs = []
         source_parquet_count = 0
 
-        # =========================================================
-        # RECOVERY OR NORMAL MODE
-        # =========================================================
+        # =============================================================
+        # 2.0 NORMAL OR RECOVERY MODE
+        # =============================================================
         if recovery_mode:
-
+            # =========================================================
+            # 2.1 RECOVERY MODE: MOVE FILES FROM ERROR TO LANDING
+            # =========================================================
             target_copied_blobs = recover_files(
                 storage_client=storage_client,
                 bucket_name=bucket_name,
@@ -96,7 +98,7 @@ def process_table(storage_client, bq_client, config, table_cfg, recovery_mode=Fa
 
         else:
             # =========================================================
-            # NORMAL MODE: DISCOVER FILES IN THE SOURCE BUCKET
+            # 2.2 NORMAL MODE: DISCOVER FILES FROM SOURCE BUCKET
             # =========================================================
             all_source_blobs = list_blobs(storage_client, source_bucket_name, gcs_prefix)
 
@@ -118,7 +120,7 @@ def process_table(storage_client, bq_client, config, table_cfg, recovery_mode=Fa
             source_parquet_count = len(source_parquet_blobs)
 
         # =========================================================
-        # 2. INSERT RAW AUDIT FIRST (IMPORTANT)
+        # 3. INSERT RAW AUDIT FIRST (IMPORTANT)
         # =========================================================
         raw_audit_id = insert_audit_record(
             bq_client=bq_client,
@@ -133,7 +135,7 @@ def process_table(storage_client, bq_client, config, table_cfg, recovery_mode=Fa
         )
 
         # =========================================================
-        # 3. HANDLE NO FILES CASE
+        # 4. HANDLE NO FILES CASE
         # =========================================================
         if source_parquet_count == 0:
             logger.info("No parquet files found for pattern '%s' (Recovery: %s) in %s", 
@@ -152,7 +154,7 @@ def process_table(storage_client, bq_client, config, table_cfg, recovery_mode=Fa
             return
 
         # =================================================================
-        # 3.5 COPY FILES FROM SOURCE TO TARGET BUCKET (SKIP IF RECOVERY)
+        # 5. COPY FILES FROM SOURCE TO TARGET BUCKET (SKIP IF RECOVERY)
         # =================================================================
         if not recovery_mode:
             # Combine and deduplicate to get the exact files that belong only to this specific table/feed
@@ -186,7 +188,7 @@ def process_table(storage_client, bq_client, config, table_cfg, recovery_mode=Fa
         blobs_to_load = [b.name for b in parquet_blobs]
 
         # =========================================================
-        # 4. OPTIONAL CLEANING
+        # 6. OPTIONAL CLEANING
         # =========================================================
         if clean_parquet_flag.upper() == "Y":
             logger.info("Cleaning parquet files enabled")
@@ -207,7 +209,7 @@ def process_table(storage_client, bq_client, config, table_cfg, recovery_mode=Fa
             cleaned_blobs_to_delete = list(blobs_to_load)
 
         # =========================================================
-        # 5. RAW LOAD
+        # 7. RAW LOAD
         # =========================================================
         inserted_rows = load_parquet_to_bq(
             bq_client=bq_client,
@@ -238,7 +240,7 @@ def process_table(storage_client, bq_client, config, table_cfg, recovery_mode=Fa
         )
 
         # =========================================================
-        # 6. DW AUDIT + LOAD
+        # 8. DW AUDIT + LOAD
         # =========================================================
         dw_audit_id = insert_audit_record(
             bq_client=bq_client,
@@ -268,7 +270,7 @@ def process_table(storage_client, bq_client, config, table_cfg, recovery_mode=Fa
 
          
         # =========================================================
-        # 7. ARCHIVE FILES (ON TARGET BUCKET)
+        # 9.ARCHIVE FILES (ON TARGET BUCKET)
         # =========================================================
         archive_files(
             storage_client=storage_client,
@@ -281,7 +283,7 @@ def process_table(storage_client, bq_client, config, table_cfg, recovery_mode=Fa
         return
 
         # =========================================================
-        # 8. FAILURE AUDIT UPDATES
+        # 10. FAILURE AUDIT UPDATES
         # =========================================================        
 
     except Exception as e:
@@ -333,7 +335,7 @@ def process_table(storage_client, bq_client, config, table_cfg, recovery_mode=Fa
 
     finally:
         # =========================================================
-        # 9. CLEANUP TEMP FILES ONLY (ON TARGET BUCKET)
+        # 11. CLEANUP TEMP FILES ONLY (ON TARGET BUCKET)
         # =========================================================
         if cleaned_blobs_to_delete:
             bucket = storage_client.bucket(bucket_name)
