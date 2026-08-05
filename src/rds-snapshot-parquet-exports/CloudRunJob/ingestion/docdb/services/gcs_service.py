@@ -1,7 +1,7 @@
 import re
 from google.cloud import storage
 from utils.logging import get_logger
-from exceptions import JobFailure  # Fix: Import JobFailure for clean error propagation
+from services.exceptions import JobFailure
 
 logger = get_logger(__name__)
 

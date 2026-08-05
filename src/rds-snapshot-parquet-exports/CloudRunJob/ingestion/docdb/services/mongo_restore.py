@@ -3,8 +3,7 @@ import subprocess
 import time
 from pathlib import Path
 from pymongo import MongoClient
-
-from exceptions import JobFailure
+from services.exceptions import JobFailure
 from utils.logging import get_logger
 
 logger = get_logger(__name__)
@@ -12,7 +11,7 @@ logger = get_logger(__name__)
 
 class MongoRestoreService:
 
-    # Fix: Parameterized variables with safe defaults to prevent run conflicts and aid testability
+    # Parameterized variables with safe defaults to prevent run conflicts and aid testability
     def __init__(
         self, 
         port: int = 27017, 

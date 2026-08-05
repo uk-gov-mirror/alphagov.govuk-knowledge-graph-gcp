@@ -1,7 +1,7 @@
-from google.cloud import bigquery
 import uuid
-from datetime import datetime
 import logging
+from google.cloud import bigquery
+from datetime import datetime
 
 logger = logging.getLogger(__name__)
 
