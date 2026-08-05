@@ -121,6 +121,10 @@ def process_table(storage_client, bq_client, config, table_cfg, recovery_mode=Fa
             # =========================================================
             all_source_blobs = list_blobs(storage_client, source_bucket_name, gcs_prefix)
 
+            logger.info("Prefix = %s", gcs_prefix)
+            logger.info("Total blobs found = %d", len(all_source_blobs))
+
+
             # Filter source blobs for ONLY the current feed BEFORE copying
             source_parquet_blobs = [
                 b for b in all_source_blobs
@@ -370,6 +374,9 @@ def process_table(storage_client, bq_client, config, table_cfg, recovery_mode=Fa
 if __name__ == "__main__":
 
     config = load_config()
+    logger.info("Source bucket: %s", config["source_bucket_name"])
+    logger.info("Target bucket: %s", config["target_bucket_name"])
+    logger.info("Source root: %s", config["source_root"])
 
     # 1. READ CLOUD RUN TASK ENVIRONMENT VARIABLES
     # Fallback to index 0 and count 1 if running locally
