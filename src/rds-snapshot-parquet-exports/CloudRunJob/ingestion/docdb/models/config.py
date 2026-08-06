@@ -1,3 +1,18 @@
+"""
+Application Configuration
+
+Purpose:
+    Stores the configuration used by the application.
+
+Classes:
+    BackupConfig
+        Settings for backup files.
+
+    AppConfig
+        Main application settings, including Google Cloud resources
+        and optional backup configuration.
+"""
+
 from dataclasses import dataclass
 from typing import Optional
 

@@ -1,3 +1,25 @@
+"""
+Data Ingestion Pipeline
+
+Purpose:
+    Orchestrates the end-to-end data ingestion process.
+
+Execution Flow:
+    1. Loads the application configuration.
+    2. Resolves the backup file to process.
+    3. Downloads the backup from Google Cloud Storage 
+        to the Cloud Run container's temporary storage.
+    4. Restores the data to a temporary MongoDB instance.
+    5. Performs a full scan of the restored MongoDB collections to discover the
+        complete data structure. This avoids relying on BigQuery schema autodetection
+        and ensures all fields and array structures are included before loading data.
+    6. Creates or updates the BigQuery table schema based on the discovered structure.
+    7. Reads MongoDB collections to export the data as JSON files to GCS.
+    8. Loads the JSON files into BigQuery.
+    9. Updates the audit record with the job status.
+   10. Cleans up temporary files and objects.
+"""
+
 import os
 import uuid
 from services.loader import load_config
