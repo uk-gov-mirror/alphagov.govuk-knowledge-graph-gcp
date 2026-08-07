@@ -1,3 +1,16 @@
+"""
+BSON Data Sanitization Utility
+
+This module provides helper functions to convert MongoDB BSON data types into
+JSON-compatible formats before processing and loading data into BigQuery.
+
+Functions:
+1. bson_to_json() : Converts MongoDB-specific data types such as ObjectId,
+  datetime, Decimal128, Binary, DBRef, and other BSON objects into
+  JSON-serializable values.
+
+"""
+
 import base64
 from datetime import datetime, date
 import uuid
@@ -12,6 +25,9 @@ from bson.timestamp import Timestamp
 from bson.min_key import MinKey
 from bson.max_key import MaxKey
 
+# =========================================================
+# 1. Convert BSON to JSON-Compatible Formats
+# =========================================================
 
 def bson_to_json(value):
     # 1. ObjectId Conversion

@@ -1,7 +1,19 @@
+"""
+Schema Discovery Utility
+
+This module contains helper functions to inspect source documents and identify
+the fields and array structures required for creating the BigQuery schema.
+
+Functions:
+    1. discover_shapes() : Scans all documents in a MongoDB collection to identify
+        available fields and fields containing list values.
+
+"""
+
 from utils.sanitizers import sanitize_document
 
 # =========================================================
-# DISCOVER DOCUMENT FIELDS
+# 1. DISCOVER DOCUMENT FIELDS
 # =========================================================
 
 def discover_shapes(db, collection):

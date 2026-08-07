@@ -1,3 +1,18 @@
+"""
+Audit Utility Module
+
+This module contains helper functions to manage audit records in a BigQuery
+audit table.
+
+Functions:
+    1. insert_audit_record() : Creates a new audit record when processing starts.
+    2. update_audit_record() : Updates the audit record with the final status,
+       inserted row count, and end time.
+    3. fail_audit_record() : Marks an audit record as failed and stores the error
+       message.
+
+"""
+
 import uuid
 import logging
 from google.cloud import bigquery
@@ -7,7 +22,7 @@ logger = logging.getLogger(__name__)
 
 
 # =================================================
-# INSERT AUDIT RECORD
+# 1.INSERT AUDIT RECORD
 # =================================================
 def insert_audit_record(
     bq_client: bigquery.Client,
@@ -83,7 +98,7 @@ def insert_audit_record(
 
 
 # =================================================
-# UPDATE AUDIT RECORD
+# 2. UPDATE AUDIT RECORD
 # =================================================
 def update_audit_record(
     bq_client: bigquery.Client,
@@ -137,7 +152,7 @@ def update_audit_record(
 
 
 # =================================================
-# FAIL AUDIT HELPER
+# 3. FAIL AUDIT HELPER
 # =================================================
 def fail_audit_record(
     bq_client: bigquery.Client,

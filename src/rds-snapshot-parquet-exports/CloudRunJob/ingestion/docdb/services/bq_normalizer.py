@@ -1,7 +1,20 @@
+"""
+BigQuery Data Normalization Utility
+
+This module contains helper functions to format MongoDB documents so they
+match the expected BigQuery schema before loading.
+
+Functions:
+    1. _to_bq_string() : Converts values to a BigQuery-compatible STRING format.
+    2. normalize_for_bq() : Formats document fields to match the BigQuery schema,
+        ensuring repeated fields are stored as arrays and all other values are
+        converted to strings.
+"""
+
 import json
 
 # =========================================================
-# PREPARE VALUES FOR BIGQUERY
+# 1. Converts values to a BigQuery-compatible STRING format
 # =========================================================
 
 def _to_bq_string(value):
@@ -14,6 +27,9 @@ def _to_bq_string(value):
         return value
     return str(value)
 
+# =========================================================
+# 2. Formats document fields to match the BigQuery schema
+# =========================================================
 
 def normalize_for_bq(doc, repeated_fields):
     """

@@ -1,23 +1,25 @@
 """
 Data Ingestion Pipeline
 
-Purpose:
-    Orchestrates the end-to-end data ingestion process.
+This script manages the complete data ingestion process from a MongoDB backup
+to BigQuery.
 
-Execution Flow:
-    1. Loads the application configuration.
-    2. Resolves the backup file to process.
-    3. Downloads the backup from Google Cloud Storage 
-        to the Cloud Run container's temporary storage.
-    4. Restores the data to a temporary MongoDB instance.
-    5. Performs a full scan of the restored MongoDB collections to discover the
-        complete data structure. This avoids relying on BigQuery schema autodetection
-        and ensures all fields and array structures are included before loading data.
-    6. Creates or updates the BigQuery table schema based on the discovered structure.
-    7. Reads MongoDB collections to export the data as JSON files to GCS.
-    8. Loads the JSON files into BigQuery.
-    9. Updates the audit record with the job status.
-   10. Cleans up temporary files and objects.
+Workflow:
+1. Load the pipeline configuration.
+2. Find and download the backup file from GCS to the Cloud Run Job 
+    container's temporary storage.
+3. Insert audit record
+4.Restore the backup to a temporary MongoDB instance.
+5. Performs a full scan of the restored MongoDB collections to discover the
+    complete data structure. This avoids relying on BigQuery schema autodetection
+    and ensures all fields and array structures are included before loading data.
+6. Creates or updates the BigQuery table schema based on the discovered structure.
+7. Reads MongoDB collections to export the data as JSON files to GCS.
+8. Load the JSON files into BigQuery.
+9. Update the audit record with the job status.
+10. Clean up temporary files and GCS objects.
+
+This script is the main entry point for the data ingestion pipeline.
 """
 
 import os
@@ -36,7 +38,7 @@ from utils.logging import get_logger
 logger = get_logger(__name__)
 
 # =========================================================
-# INGEST DATA
+# STEP 1 - LOAD CONFIG
 # =========================================================
 
 def ingest():
@@ -74,7 +76,7 @@ def ingest():
 
     try:
         # =========================================================
-        # DOWNLOAD BACKUP FILE
+        # STEP 2 - DOWNLOAD BACKUP FILE
         # =========================================================
         gcs.download_file(
             config.bucket_name,
@@ -88,7 +90,7 @@ def ingest():
         )
 
         # =========================================================
-        # INSERT AUDIT RECORD
+        # STEP 3 - INSERT AUDIT RECORD
         # =========================================================
         raw_audit_id = insert_audit_record(
             bq_client=bq_client,
@@ -100,7 +102,9 @@ def ingest():
             file_path=f"gs://{config.bucket_name}/{backup}",
             status="processing",
         )
-
+        # =========================================================
+        # STEP 4 - RESTORE MONGODB BACKUP
+        # =========================================================
         with MongoRestoreService() as mongo:
             mongo.restore(local_file, config.collection_name)
 
@@ -111,7 +115,7 @@ def ingest():
             dbs_with_collection = []
 
             # =========================================================
-            # STEP 1 — DISCOVER FIELDS
+            # STEP 5 — DISCOVER COLLECTION SCHEMA
             # =========================================================
             for db_name in dbs:
                 db = mongo.client[db_name]
@@ -136,7 +140,7 @@ def ingest():
                 return
 
             # =========================================================
-            #  CREATE OR UPDATE THE BIGQUERY SCHEMA
+            #  STEP 6 — CREATE OR UPDATE THE BIGQUERY SCHEMA
             # =========================================================
             schema, repeated_fields = bq.sync_schema(
                 config.dataset_id,
@@ -146,7 +150,7 @@ def ingest():
             )
 
             # =========================================================
-            # STEP 2 — WRITE JSON FILES TO GCS
+            # STEP 7 — WRITE JSON FILES TO GCS
             # =========================================================
             for db_name in dbs_with_collection:
                 db = mongo.client[db_name]
@@ -181,7 +185,7 @@ def ingest():
             inserted_rows = total_count
 
             # =========================================================
-            # LOAD DATA INTO BIGQUERY
+            # STEP 8 — LOAD DATA INTO BIGQUERY
             # =========================================================
             uri = f"gs://{config.bucket_name}/temp/{run_id}/*.json"
 
@@ -191,7 +195,9 @@ def ingest():
                 uri,
                 schema=schema
             )
-
+            # =========================================================
+            # STEP 9 — UPDATE AUDIT RECORD
+            # =========================================================
             update_audit_record(
                 bq_client=bq_client,
                 audit_table_id=audit_table_id,
@@ -218,7 +224,9 @@ def ingest():
                 logger.exception("Audit update failed")
 
         raise JobFailure(str(e)) from e
-
+    # =========================================================
+    # STEP 10 — CLEAN UP TEMPORARY FILES
+    # =========================================================
     finally:
         logger.info("Cleaning up temporary files...")
 

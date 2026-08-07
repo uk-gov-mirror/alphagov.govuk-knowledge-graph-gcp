@@ -1,3 +1,18 @@
+"""
+Logging Utility
+
+This module provides a centralized logging configuration for the application.
+
+Functions:
+- get_logger() : Returns a configured logger instance for use across pipeline
+  modules.
+
+The logging configuration is initialized once when this module is imported.
+Logs are written to standard output (stdout) with timestamp, log level, and
+module name details.
+
+"""
+
 import logging
 import sys
 
@@ -10,6 +25,9 @@ logging.basicConfig(
     handlers=[logging.StreamHandler(sys.stdout)]
 )
 
+# =========================================================
+# 1. Get Logger Instance
+# =========================================================
 
 def get_logger(name: str = __name__) -> logging.Logger:
     """

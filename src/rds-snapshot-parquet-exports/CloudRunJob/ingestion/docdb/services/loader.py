@@ -1,9 +1,22 @@
+"""
+Configuration Loader Utility
+
+This module provides helper functions to load and prepare the application
+configuration required by the data ingestion pipeline.
+
+Functions:
+    1. load_config() : Reads the configuration file, creates the application
+        configuration object, and returns both the parsed configuration and the
+        raw configuration values.
+
+"""
+
 import json
 import os
 from models.config import AppConfig, BackupConfig
 
 # =========================================================
-# LOAD CONFIGURATION
+# 1.LOAD CONFIGURATION
 # =========================================================
 
 def load_config():

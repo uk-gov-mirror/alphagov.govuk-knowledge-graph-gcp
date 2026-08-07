@@ -1,3 +1,19 @@
+"""
+BigQuery Service
+
+This module provides helper methods for managing BigQuery datasets, tables,
+schemas, and data loads used by the data ingestion pipeline.
+
+Functions:
+    1. ensure_dataset() : Creates the target dataset if it does not already exist.
+    2. sync_schema() : Creates or updates the BigQuery table schema based on the
+        fields discovered in the source data while preserving existing table
+        properties where possible.
+    3. load_from_gcs() : Loads JSON data from Google Cloud Storage (GCS) into
+        the target BigQuery table.
+
+"""
+
 from google.cloud import bigquery
 from google.cloud.exceptions import NotFound
 from utils.logging import get_logger
@@ -10,6 +26,11 @@ class BigQueryService:
     def __init__(self, project_id: str):
         self.client = bigquery.Client(project=project_id)
 
+    # =========================================================
+    # 1. Creates the target dataset if it does not already exist
+    # =========================================================
+
+
     def ensure_dataset(self, dataset_id: str, location: str):
         dataset_ref = self.client.dataset(dataset_id)
 
@@ -20,6 +41,10 @@ class BigQueryService:
             dataset.location = location
             self.client.create_dataset(dataset)
             logger.info("Created dataset %s", dataset_id)
+
+    # =========================================================
+    # 2. Creates or updates the BigQuery table schema
+    # =========================================================
 
     def sync_schema(self, dataset_id, table_name, source_fields, array_fields):
         """
@@ -142,6 +167,10 @@ class BigQueryService:
             table = self.client.update_table(table, ["schema"])
 
         return table.schema, repeated_field_names
+
+    # =========================================================
+    # 3. Loads JSON data from GCS to the target BigQuery table
+    # =========================================================
 
     def load_from_gcs(self, dataset_id, table_name, uri, schema):
         table_ref = self.client.dataset(dataset_id).table(table_name)

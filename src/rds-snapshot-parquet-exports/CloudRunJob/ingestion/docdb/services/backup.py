@@ -1,8 +1,17 @@
-from services.exceptions import JobFailure
+"""
+Backup Resolution Utility
 
-# =========================================================
-# FIND DB BACKUP FILE
-# =========================================================
+This module contains helper functions to locate the MongoDB backup file
+to be processed.
+
+Functions:
+- resolve_backup() : Returns the backup file specified in the configuration.
+  If no file is provided, it finds the latest matching backup in Google
+  Cloud Storage (GCS).
+
+"""
+
+from services.exceptions import JobFailure
 
 def resolve_backup(config, gcs):
     if config.object_name:

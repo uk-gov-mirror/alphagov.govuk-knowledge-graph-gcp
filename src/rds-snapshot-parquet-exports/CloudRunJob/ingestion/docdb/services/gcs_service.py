@@ -1,3 +1,18 @@
+"""
+Google Cloud Storage (GCS) Service
+
+This module provides helper methods for working with Google Cloud Storage (GCS)
+as part of the data ingestion pipeline.
+
+Functions:
+1. download_file() : Downloads a file from GCS to local temporary storage.
+2. get_bucket() : Returns the Google Cloud Storage client.
+3. bucket() : Returns a specific GCS bucket.
+4. find_latest_backup() : Finds the most recent backup file that matches the
+  configured prefix and filename pattern.
+
+"""
+
 import re
 from google.cloud import storage
 from utils.logging import get_logger
@@ -11,6 +26,10 @@ class GCSService:
     def __init__(self, project_id: str):
         self.client = storage.Client(project=project_id)
 
+    # =========================================================
+    # 1. Downloads a file from GCS to local temporary storage
+    # =========================================================
+
     def download_file(self, bucket_name: str, object_name: str, local_path: str):
         bucket = self.client.bucket(bucket_name)
         blob = bucket.blob(object_name)
@@ -18,21 +37,32 @@ class GCSService:
         logger.info("Downloading gs://%s/%s", bucket_name, object_name)
         blob.download_to_filename(str(local_path))
 
-    # Fix: Added get_bucket() to support main.py's "gcs.get_bucket().bucket(...)"
+    # =========================================================
+    # 2. Returns the Google Cloud Storage client
+    # =========================================================
+
     def get_bucket(self) -> storage.Client:
         """
         Returns the raw GCS Client instance.
         """
         return self.client
 
-    # Fix: Corrected indentation so this is a proper method of GCSService
+    # =========================================================
+    # 3. Returns a specific GCS bucket
+    # =========================================================
+
     def bucket(self, bucket_name: str) -> storage.Bucket:
         """
         Returns a specific GCS bucket instance.
         """
         return self.client.bucket(bucket_name)
 
-    # Fix: Corrected indentation so this is a proper method of GCSService
+
+    # =========================================================
+    # 4. Finds the most recent backup file that matches 
+    # the configured prefix and filename pattern
+    # =========================================================
+
     def find_latest_backup(self, bucket_name: str, backup_cfg) -> str:
         """
         Returns latest backup matching config rules.
@@ -51,7 +81,7 @@ class GCSService:
         ]
 
         if not candidates:
-            # Fix: Raising JobFailure matches the main.py try/except structure
+            # Raising JobFailure if no matching backup is found
             raise JobFailure(
                 f"No matching backup found in GCS bucket '{bucket_name}' "
                 f"with prefix '{backup_cfg.prefix}' and pattern '{backup_cfg.match_regex}'"

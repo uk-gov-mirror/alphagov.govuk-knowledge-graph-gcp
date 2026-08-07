@@ -1,3 +1,18 @@
+"""
+MongoDB Restore Service
+
+This module provides helper methods to start a temporary MongoDB instance,
+restore backup data, and clean up resources after processing.
+
+Functions:
+1. start() : Starts a local MongoDB instance for temporary data restoration.
+2. restore() : Restores a MongoDB backup archive into the local instance.
+3. stop() : Stops MongoDB and removes temporary files.
+4. __enter__() / __exit__() : Supports using the service as a context manager
+  to automatically manage startup and cleanup.
+
+"""
+
 import shutil
 import subprocess
 import time
@@ -24,6 +39,10 @@ class MongoRestoreService:
         self.process = None
         self.client = None
         self.log_file = None
+    
+    # =================================================================
+    # 1. Starts a local MongoDB instance for temporary data restoration
+    # =================================================================
 
     def start(self):
         # Ensure temporary database directory exists
@@ -62,6 +81,10 @@ class MongoRestoreService:
 
         raise JobFailure(f"Mongo failed to start on port {self.port} within 15 seconds")
 
+    # =================================================================
+    # 2. Restores a MongoDB backup archive into the local instance
+    # =================================================================
+
     def restore(self, archive_file, collection_name):
         logger.info("Restoring namespace '*.%s' from archive: %s", collection_name, archive_file)
 
@@ -82,6 +105,10 @@ class MongoRestoreService:
             raise JobFailure(f"mongorestore failed with exit code {result.returncode}: {result.stderr}")
 
         logger.info("Successfully restored namespace '*.%s'", collection_name)
+
+    # =================================================================
+    # 3. Stops MongoDB and removes temporary files
+    # =================================================================
 
     def stop(self):
         logger.info("Cleaning up MongoRestoreService...")
@@ -116,12 +143,16 @@ class MongoRestoreService:
             except Exception as e:
                 logger.warning("Failed to clean up temporary database directory %s: %s", self.db_path, e)
 
+    # =======================================================================
+    # 4. Context manager methods to automatically manage startup and cleanup
+    # =======================================================================
+
     def __enter__(self):
         try:
             self.start()
             return self
         except Exception:
-            # Fix: If start() fails, aggressively cleanup resources before letting exception bubble up
+            # If start() fails, aggressively cleanup resources before letting exception bubble up
             self.stop()
             raise
 

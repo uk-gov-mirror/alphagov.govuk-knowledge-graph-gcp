@@ -1,9 +1,28 @@
+"""
+GCS JSON Writer Utility
+
+This module contains helper functions to export MongoDB documents to JSON
+files stored in Google Cloud Storage (GCS).
+
+Functions:
+    1. write_to_gcs() : Reads documents from a MongoDB collection, formats them
+        according to the BigQuery schema, and writes them as newline-delimited JSON
+        records to GCS.
+
+"""
+
 import json
 from services.bq_normalizer import normalize_for_bq
 from utils.logging import get_logger
 from utils.sanitizers import sanitize_document
 
 logger = get_logger(__name__)
+
+# =========================================================
+# 1. Reads documents from a MongoDB collection, formats them
+#    according to the BigQuery schema, and writes to GCS as
+#    newline-delimited JSON records.
+# =========================================================
 
 def write_to_gcs(db, collection, bucket, blob_name, repeated_fields):
     """
