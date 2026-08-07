@@ -1,3 +1,24 @@
+"""
+Parquet Cleaning Service
+
+Purpose:
+This module cleans Parquet files using configurable rules and uploads the
+processed files back to Google Cloud Storage while preserving the original
+folder structure.
+
+Execution Flow:
+1. Validate whether cleaning rules are configured.
+2. Create a unique temporary workspace for processing.
+3. Clean any existing temporary files from previous executions.
+4. Process each Parquet file from the input list.
+5. Apply configured data cleaning rules such as type casting and null
+   value replacement.
+6. Write cleaned Parquet files locally.
+7. Upload cleaned files to the target GCS location.
+8. Remove temporary processing files.
+9. Return the list of cleaned file paths.
+"""
+
 import os
 import shutil
 import uuid
@@ -9,7 +30,9 @@ import logging
 
 logger = logging.getLogger(__name__)
 
-
+# =================================================
+# 1.0 VALIDATE CLEANING RULES
+# =================================================
 def clean_parquet_files(
     storage_client,
     bucket_name,
@@ -27,7 +50,7 @@ def clean_parquet_files(
     """
 
     # ------------------------------------------------
-    # 1.0 NO CLEANING RULES
+    # 1.1 NO CLEANING RULES
     # ------------------------------------------------
     if not cleaning_rules:
         logger.info(
@@ -43,7 +66,7 @@ def clean_parquet_files(
     logger.info("Using temp directory: %s", temp_dir)
 
     # ------------------------------------------------
-    # 3.0 CLEAN OLD TEMP DIRECTORY (SAFETY)
+    # 3.0 CLEAN EXISTING TEMPORARY FILES
     # ------------------------------------------------
     try:
         if os.path.exists(temp_dir):
@@ -70,7 +93,7 @@ def clean_parquet_files(
     PROGRESS_INTERVAL = 100
 
     # ------------------------------------------------
-    # 4.0 START BATCH
+    # 4.0 INITIALISE PARQUET CLEANING JOB
     # ------------------------------------------------
     logger.info(
         "Starting parquet cleaning job. files=%s target=%s",
@@ -79,7 +102,7 @@ def clean_parquet_files(
     )
 
     # ------------------------------------------------
-    # 5.0 PROCESS FILES
+    # 4.1 PROCESS PARQUET FILES
     # ------------------------------------------------
     for i, blob in enumerate(parquet_blobs, start=1):
 
@@ -97,7 +120,7 @@ def clean_parquet_files(
                 )
 
             # ------------------------------------------------
-            # 5.1 PRESERVE STRUCTURE
+            # 4.2 PRESERVE SOURCE FOLDER STRUCTURE
             # ------------------------------------------------
             relative_path = blob.name.replace(source_root, "", 1).lstrip("/")
             if not relative_path:
@@ -107,7 +130,7 @@ def clean_parquet_files(
             os.makedirs(os.path.dirname(local_path), exist_ok=True)
 
             # ------------------------------------------------
-            # 5.2 READ PARQUET
+            # 4.3 READ PARQUET FILE
             # ------------------------------------------------
             table = pq.read_table(gcs_path, filesystem=fs)
 
@@ -124,7 +147,7 @@ def clean_parquet_files(
                     col = col.cast(pa.float64())
 
                 # ------------------------------------------------
-                # 5.3 NULL REPLACEMENT LOGIC
+                # 4.4 NULL REPLACEMENT LOGIC
                 # ------------------------------------------------
                 if col_name in replace_cols and replace_values:
 
@@ -149,7 +172,7 @@ def clean_parquet_files(
                 new_columns.append(col)
 
             # ------------------------------------------------
-            # 5.4 BUILD CLEANED TABLE
+            # 5.0 BUILD CLEANED TABLE
             # ------------------------------------------------
             cleaned_table = pa.table(
                 new_columns,
@@ -157,12 +180,12 @@ def clean_parquet_files(
             )
 
             # ------------------------------------------------
-            # 5.5 WRITE LOCAL FILE
+            # 6.0 WRITE LOCAL FILE
             # ------------------------------------------------
             pq.write_table(cleaned_table, local_path)
 
             # ------------------------------------------------
-            # UPLOAD TO GCS
+            # 7.0 UPLOAD TO GCS
             # ------------------------------------------------
             dest_blob_name = f"{target_root.rstrip('/')}/{relative_path}"
             dest_blob = bucket.blob(dest_blob_name)
@@ -179,7 +202,7 @@ def clean_parquet_files(
             raise
 
     # ------------------------------------------------
-    # 6.0 FINAL CLEANUP
+    # 8.0 FINAL CLEANUP
     # ------------------------------------------------
     try:
         shutil.rmtree(temp_dir, ignore_errors=True)
@@ -188,7 +211,7 @@ def clean_parquet_files(
         logger.exception("Failed final temp directory cleanup: %s", temp_dir)
 
     # ------------------------------------------------
-    # 7.0 SUMMARY
+    # 9.0 SUMMARY
     # ------------------------------------------------
     logger.info(
         "Parquet cleaning completed. input=%s output=%s",

@@ -1,3 +1,18 @@
+"""
+Audit Logging Utilities
+
+Purpose:
+This module manages audit records for the ingestion pipeline by creating,
+updating, and marking audit entries in the BigQuery audit table.
+
+Execution Flow:
+1. Insert a new audit record when a processing stage begins.
+2. Update the audit record with the processing status, inserted row count,
+   error message (if applicable), and end time.
+3. Mark the audit record as failed using the helper function when an error
+   occurs during processing.
+"""
+
 from google.cloud import bigquery
 import uuid
 from datetime import datetime
@@ -7,7 +22,7 @@ logger = logging.getLogger(__name__)
 
 
 # =================================================
-# 1.0 INSERT AUDIT RECORD
+# 1. INSERT AUDIT RECORD
 # =================================================
 def insert_audit_record(
     bq_client: bigquery.Client,
@@ -83,7 +98,7 @@ def insert_audit_record(
 
 
 # =================================================
-# 2.0 UPDATE AUDIT RECORD
+# 2. UPDATE AUDIT RECORD
 # =================================================
 def update_audit_record(
     bq_client: bigquery.Client,
@@ -137,7 +152,7 @@ def update_audit_record(
 
 
 # =================================================
-# 3.0 FAIL AUDIT HELPER
+# 3. FAIL AUDIT HELPER
 # =================================================
 def fail_audit_record(
     bq_client: bigquery.Client,

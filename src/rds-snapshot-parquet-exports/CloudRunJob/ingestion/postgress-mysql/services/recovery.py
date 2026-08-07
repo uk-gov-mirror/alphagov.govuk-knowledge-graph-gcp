@@ -1,7 +1,22 @@
+"""
+File Recovery Service
+
+Purpose:
+This module recovers failed ingestion files by moving them from the error
+location back to the landing location for reprocessing in recovery mode.
+
+Execution Flow:
+1. Identify files available in the error location.
+2. Filter files belonging to the configured feed.
+3. Copy eligible files back to the landing location.
+4. Delete the original files from the error location.
+5. Return the list of recovered files for further processing.
+6. Log recovery progress and failures.
+"""
+
 import logging
 
 logger = logging.getLogger(__name__)
-
 
 def recover_files(
     storage_client,
@@ -32,6 +47,9 @@ def recover_files(
         source_root,
     )
 
+    # =================================================
+    # 1. INITIALISE RECOVERY PROCESS
+    # =================================================
     bucket = storage_client.bucket(bucket_name)
 
     # Ensure prefixes have trailing slash
@@ -47,7 +65,9 @@ def recover_files(
         else f"{source_root}/"
     )
 
-    # Discover files in error location
+    # =================================================
+    # 2. DISCOVER FILES FROM ERROR LOCATION
+    # =================================================
     error_blobs = list(
         storage_client.list_blobs(
             bucket_name,
@@ -60,7 +80,9 @@ def recover_files(
         len(error_blobs)
     )
 
-    # Filter only files belonging to this feed
+    # =================================================
+    # 3. FILTER FILES FOR CURRENT FEED
+    # =================================================
     recovery_blobs = [
         blob
         for blob in error_blobs
@@ -97,7 +119,9 @@ def recover_files(
                 new_name,
             )
 
-            # Copy file back to landing
+            # ================================================================
+            # 4. COPY FILES TO LANDING LOCATION & REMOVE FROM ERROR LOCATION
+            # ================================================================
             new_blob = bucket.copy_blob(
                 blob,
                 bucket,
@@ -126,4 +150,7 @@ def recover_files(
         len(recovered_blobs)
     )
 
+    # =================================================
+    # 5. RETURN RECOVERY SUMMARY
+    # =================================================
     return recovered_blobs

@@ -1,7 +1,26 @@
+"""
+Google Cloud Storage Utility Service
+
+Purpose:
+This module provides utility functions for interacting with Google Cloud
+Storage, including listing files, deriving movement paths, and copying
+files between buckets.
+
+Execution Flow:
+1. List files from a GCS bucket using a provided prefix.
+2. Derive target movement paths from configured file paths.
+3. Copy selected files from the source bucket to the target bucket.
+4. Return references to the copied files for further processing.
+5. Log copy operations and handle copy failures.
+"""
+
 import logging
 
 logger = logging.getLogger(__name__)
 
+# =================================================
+# 1. LIST FILES FROM GCS LOCATION
+# =================================================
 def list_blobs(
     storage_client,
     bucket_name,
@@ -16,6 +35,9 @@ def list_blobs(
         )
     )
 
+# =================================================
+# 2. DERIVE FILE MOVEMENT PATH
+# =================================================
 
 def derive_move_path(path_contains):
 
@@ -23,6 +45,9 @@ def derive_move_path(path_contains):
         path_contains.strip("/").split("/")[:-1]
     ) + "/"
 
+# =================================================
+# 3. COPY FILES BETWEEN GCS BUCKETS
+# =================================================
 
 def copy_blobs_to_bucket(
     storage_client, 

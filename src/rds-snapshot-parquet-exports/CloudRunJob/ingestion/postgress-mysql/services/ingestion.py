@@ -1,3 +1,26 @@
+"""
+Table Ingestion Processing Service
+
+Purpose:
+This module manages the end-to-end ingestion process for an individual
+table. It handles file discovery, recovery processing, auditing, BigQuery
+loading, transformation execution, file archiving, and error handling.
+
+Execution Flow:
+1. Initialise table configuration and processing variables.
+2. Determine normal or recovery processing mode.
+3. Discover or recover source files.
+4. Insert raw load audit record.
+5. Handle scenarios where no files are available.
+6. Copy required files to the target bucket.
+7. Optionally clean Parquet files.
+8. Load Parquet data into the raw BigQuery table.
+9. Insert DW audit record and execute transformation SQL.
+10. Archive successfully processed files.
+11. Update audit records and move files to error location if processing fails.
+12. Remove temporary cleaned files during cleanup.
+"""
+
 import logging
 from datetime import date
 from utils.gcs_utils import list_blobs, derive_move_path, copy_blobs_to_bucket
@@ -50,7 +73,7 @@ def process_table(storage_client, bq_client, config, table_cfg, recovery_mode=Fa
     }
 
     # =========================================================
-    # 1.0 INITIALISE PROCESSING STATE
+    # 1. INITIALISE PROCESSING STATE
     # =========================================================
     raw_audit_id = None
     dw_audit_id = None
@@ -73,11 +96,11 @@ def process_table(storage_client, bq_client, config, table_cfg, recovery_mode=Fa
         source_parquet_count = 0
 
         # =============================================================
-        # 2.0 NORMAL OR RECOVERY MODE
+        # 2. DETERMINE PROCESSING MODE
         # =============================================================
         if recovery_mode:
             # =========================================================
-            # 2.1 RECOVERY MODE: MOVE FILES FROM ERROR TO LANDING
+            # 2.1 RECOVERY MODE: RESTORE FILES FROM ERROR LOCATION
             # =========================================================
             target_copied_blobs = recover_files(
                 storage_client=storage_client,
@@ -120,7 +143,7 @@ def process_table(storage_client, bq_client, config, table_cfg, recovery_mode=Fa
             source_parquet_count = len(source_parquet_blobs)
 
         # =========================================================
-        # 3. INSERT RAW AUDIT FIRST (IMPORTANT)
+        # 3. INSERT RAWAUDIT RECORD
         # =========================================================
         raw_audit_id = insert_audit_record(
             bq_client=bq_client,
@@ -188,7 +211,7 @@ def process_table(storage_client, bq_client, config, table_cfg, recovery_mode=Fa
         blobs_to_load = [b.name for b in parquet_blobs]
 
         # =========================================================
-        # 6. OPTIONAL CLEANING
+        # 6. OPTIONAL PARQUET CLEANING
         # =========================================================
         if clean_parquet_flag.upper() == "Y":
             logger.info("Cleaning parquet files enabled")
@@ -209,7 +232,7 @@ def process_table(storage_client, bq_client, config, table_cfg, recovery_mode=Fa
             cleaned_blobs_to_delete = list(blobs_to_load)
 
         # =========================================================
-        # 7. RAW LOAD
+        # 7. LOAD DATA INTO RAW BIGQUERY TABLE
         # =========================================================
         inserted_rows = load_parquet_to_bq(
             bq_client=bq_client,
@@ -240,7 +263,8 @@ def process_table(storage_client, bq_client, config, table_cfg, recovery_mode=Fa
         )
 
         # =========================================================
-        # 8. DW AUDIT + LOAD
+        # 8. INSERT DW AUDIT RECORD & EXECUTE TRANSFORMATION SQL
+        #    UPDATE DW AUDIT RECORD AFTER SUCCESS
         # =========================================================
         dw_audit_id = insert_audit_record(
             bq_client=bq_client,
@@ -270,7 +294,7 @@ def process_table(storage_client, bq_client, config, table_cfg, recovery_mode=Fa
 
          
         # =========================================================
-        # 9.ARCHIVE FILES (ON TARGET BUCKET)
+        # 9. ARCHIVE PROCESSED FILES (ON TARGET BUCKET)
         # =========================================================
         archive_files(
             storage_client=storage_client,
@@ -283,7 +307,7 @@ def process_table(storage_client, bq_client, config, table_cfg, recovery_mode=Fa
         return
 
         # =========================================================
-        # 10. FAILURE AUDIT UPDATES
+        # 10. FAILURE RAW AUDIT UPDATES
         # =========================================================        
 
     except Exception as e:
@@ -303,7 +327,10 @@ def process_table(storage_client, bq_client, config, table_cfg, recovery_mode=Fa
             except Exception:
                     logger.exception("Failed updating raw audit")
 
-        # DW AUDIT FAILURE
+        # =========================================================
+        # 11. FAILURE DW AUDIT UPDATES
+        # =========================================================        
+
         if dw_audit_id:
             try:
                 update_audit_record(
@@ -317,8 +344,9 @@ def process_table(storage_client, bq_client, config, table_cfg, recovery_mode=Fa
             except Exception:
                     logger.exception("Failed updating DW audit")
 
-
-        # Move files to error (ON TARGET BUCKET)
+        # =========================================================
+        # 12. MOVE FILES TO ERROR (ON TARGET BUCKET)
+        # =========================================================        
         try:
             move_to_error(
                 storage_client=storage_client,
@@ -335,7 +363,7 @@ def process_table(storage_client, bq_client, config, table_cfg, recovery_mode=Fa
 
     finally:
         # =========================================================
-        # 11. CLEANUP TEMP FILES ONLY (ON TARGET BUCKET)
+        # 13. CLEANUP TEMP FILES ONLY (ON TARGET BUCKET)
         # =========================================================
         if cleaned_blobs_to_delete:
             bucket = storage_client.bucket(bucket_name)

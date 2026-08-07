@@ -1,8 +1,29 @@
+"""
+File Movement Utilities
+
+Purpose:
+This module manages file movement within Google Cloud Storage. It supports
+moving processed files to archive locations and failed files to error
+locations.
+
+Execution Flow:
+1. Validate source file paths before moving files.
+2. Build destination paths while maintaining the original folder structure.
+3. Copy files to the target location.
+4. Delete the original files after a successful copy.
+5. Handle missing files caused by parallel processing safely.
+6. Provide summary logging of moved and skipped files.
+7. Support archive and error file movement through reusable functions.
+"""
+
 import logging
 from google.api_core.exceptions import NotFound
 
 logger = logging.getLogger(__name__)
 
+# =================================================
+# Move Files To Target Location
+# =================================================
 def move_files(
     storage_client,
     bucket_name,
@@ -58,6 +79,9 @@ def move_files(
     else:
         logger.info("Archive complete. Moved=%s files", moved_count)
 
+# =================================================
+#  Mover Files to Archive Location
+# =================================================
 
 def archive_files(
     storage_client,
@@ -76,6 +100,9 @@ def archive_files(
         target_root=archive_root
     )
 
+# =================================================
+#  Mover Files to Error Location
+# =================================================
 
 def move_to_error(
     storage_client,

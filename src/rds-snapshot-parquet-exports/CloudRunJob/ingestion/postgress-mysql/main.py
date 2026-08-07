@@ -1,3 +1,21 @@
+"""
+Main Ingestion Pipeline Entry Point
+
+Purpose:
+This module is the main entry point for the ingestion pipeline. It loads
+the application configuration, initializes Google Cloud clients, and
+orchestrates table processing.
+
+Execution Flow:
+1. Load the pipeline configuration.
+2. Read the Cloud Run task index and task count.
+3. Determine whether Recovery Mode is enabled.
+4. Assign tables to the current Cloud Run task.
+5. Initialize Cloud Storage and BigQuery clients.
+6. Process each assigned table.
+7. Log any failed tables.
+"""
+
 import sys
 import os
 import logging
@@ -15,13 +33,16 @@ logger = logging.getLogger(__name__)
 # =========================================================
 if __name__ == "__main__":
 
+    # =====================================================
+    # 1. LOAD CONFIGURATION
+    # =====================================================
     config = load_config()
     logger.info("Source bucket: %s", config["source_bucket_name"])
     logger.info("Target bucket: %s", config["target_bucket_name"])
     logger.info("Source root: %s", config["source_root"])
 
     # =====================================================
-    # CLOUD RUN PARALLEL TASK CONFIGURATION
+    # 2. LOAD CLOUD RUN TASK CONFIGURATION
     # =====================================================
     # Get the current task index and total number of tasks.
     # These values are used to split table processing across
@@ -32,6 +53,8 @@ if __name__ == "__main__":
     task_count = int(os.environ.get("CLOUD_RUN_TASK_COUNT", 1))
 
     # =====================================================
+    # 3. DETERMINE IF RECOVERY MODE IS ENABLED
+    # =====================================================
     # Recovery mode processes files from the error location.
     # Normal mode processes new files from the landing location.
     # =====================================================
@@ -40,7 +63,7 @@ if __name__ == "__main__":
     all_tables = config.get("tables", [])
     
     # =====================================================
-    # SPLIT TABLES ACROSS CLOUD RUN TASKS
+    # 4. SPLIT TABLES ACROSS CLOUD RUN TASKS
     # =====================================================
     # Each task processes only its assigned tables to avoid
     # duplicate processing when running in parallel.
@@ -58,13 +81,16 @@ if __name__ == "__main__":
     if not assigned_tables:
         logger.info("No tables assigned to this task. Exiting.")
         sys.exit(0)
-
+    # =====================================================
+    # 5. INITIALIZE BQ CLIENTS
+    # =====================================================
     storage_client = storage.Client(project=config["project_id"])
     bq_client = bigquery.Client(project=config["project_id"])
 
     failed_tables = []
-
-    #  PROCESS ONLY ASSIGNED TABLES
+    # =====================================================
+    # 6. PROCESS ASSIGNED TABLES
+    # =====================================================
     for table_cfg in assigned_tables:
 
         logger.info(
@@ -89,6 +115,9 @@ if __name__ == "__main__":
             )
             logger.exception("Table failed")
 
+    # =====================================================
+    # 7. LOG FAILED TABLES
+    # =====================================================
     if failed_tables:
         logger.warning("[Task %d] Failed tables:", task_index)
         for t in failed_tables:
