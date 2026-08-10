@@ -1,30 +1,24 @@
-FROM mongo:8.0.4
+FROM python:3.11-slim
 
-# Install gcloud
-# https://cloud.google.com/sdk/docs/install#deb 
-ENV DEBIAN_FRONTEND noninteractive
-RUN apt-get update -y
-RUN apt-get install -y \
-  apt-transport-https \
-  ca-certificates \
-  gnupg \
-  curl
-RUN \
-  echo "deb [signed-by=/usr/share/keyrings/cloud.google.gpg] http://packages.cloud.google.com/apt cloud-sdk main" \
-  | tee -a /etc/apt/sources.list.d/google-cloud-sdk.list \
-  && curl https://packages.cloud.google.com/apt/doc/apt-key.gpg \
-  | apt-key --keyring /usr/share/keyrings/cloud.google.gpg add - \
-  && apt-get update -y \
-  && apt-get install google-cloud-cli -y \
-  # Clean up
-  && rm -rf /var/lib/apt/lists/*
+# Tell apt-get to run automatically, buffer stdout, and silence pip root warnings globally
+ENV DEBIAN_FRONTEND=noninteractive \
+    PYTHONUNBUFFERED=True \
+    PIP_ROOT_USER_ACTION=ignore
 
-ARG GITHUB_SHA=missing
-ENV GITHUB_SHA=${GITHUB_SHA}
+# Install tools, configure APT to use classic 'gpgv' and install MongoDB tools securely.
+RUN apt-get update && apt-get install -y gnupg wget curl gpgv && \
+    echo 'APT::Key::gpgvcommand "/usr/bin/gpgv";' > /etc/apt/apt.conf.d/99-temp-use-gpgv && \
+    curl -fsSL https://www.mongodb.org/static/pgp/server-7.0.asc | gpg --dearmor -o /usr/share/keyrings/mongodb-server-7.0.gpg && \
+    echo "deb [ signed-by=/usr/share/keyrings/mongodb-server-7.0.gpg ] http://repo.mongodb.org/apt/debian bookworm/mongodb-org/7.0 main" | tee /etc/apt/sources.list.d/mongodb-org-7.0.list && \
+    apt-get update && apt-get install -y mongodb-org-server mongodb-org-tools && \
+    apt-get clean && rm -rf /var/lib/apt/lists/*
 
-ARG GITHUB_REF=missing
-ENV GITHUB_REF=${GITHUB_REF}
+WORKDIR /app
 
-ENTRYPOINT []
-COPY entrypoint.sh .
-CMD bash entrypoint.sh
+COPY requirements.txt .
+RUN pip install --no-cache-dir -r requirements.txt
+
+COPY . .
+WORKDIR /app/src/asset-manager
+
+CMD ["python", "main.py"]
